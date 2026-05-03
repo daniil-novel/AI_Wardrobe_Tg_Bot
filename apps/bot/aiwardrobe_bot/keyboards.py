@@ -18,7 +18,5 @@ def main_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
 
 def result_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Открыть результат", web_app=WebAppInfo(url=miniapp_url))]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="Открыть результат", web_app=WebAppInfo(url=miniapp_url))]]
     )

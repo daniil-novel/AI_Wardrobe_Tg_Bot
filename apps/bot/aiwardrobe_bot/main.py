@@ -4,9 +4,9 @@ import logging
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
+from aiwardrobe_core.config import get_settings
 
 from aiwardrobe_bot.keyboards import main_keyboard, result_keyboard
-from aiwardrobe_core.config import get_settings
 
 router = Router()
 
@@ -30,13 +30,23 @@ async def upload_help(message: Message) -> None:
 @router.message(Command("wardrobe"))
 async def wardrobe(message: Message) -> None:
     settings = get_settings()
-    await message.answer("Гардероб открывается внутри Telegram Mini App.", reply_markup=main_keyboard(settings.miniapp_public_url))
+    await message.answer(
+        "Гардероб открывается внутри Telegram Mini App.",
+        reply_markup=main_keyboard(
+            settings.miniapp_public_url,
+        ),
+    )
 
 
 @router.message(Command("favorites"))
 async def favorites(message: Message) -> None:
     settings = get_settings()
-    await message.answer("Избранные луки и аутфиты доступны в Mini App.", reply_markup=main_keyboard(settings.miniapp_public_url))
+    await message.answer(
+        "Избранные луки и аутфиты доступны в Mini App.",
+        reply_markup=main_keyboard(
+            settings.miniapp_public_url,
+        ),
+    )
 
 
 @router.message(Command("delete_me"))
@@ -66,6 +76,8 @@ async def privacy_callback(callback: CallbackQuery) -> None:
 @router.message(F.photo)
 async def photo_upload(message: Message) -> None:
     settings = get_settings()
+    if not message.photo:
+        return
     photo = message.photo[-1]
     await message.answer(
         f"Фото принято. file_id: {photo.file_id[:16]}... Обработка должна идти через backend queue.",

@@ -1,8 +1,7 @@
 from uuid import uuid4
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.schemas import OutfitRequest
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/designer", tags=["designer"])
 

@@ -1,9 +1,8 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
-
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.schemas import AiTaskRequest, AiTaskStatus
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 

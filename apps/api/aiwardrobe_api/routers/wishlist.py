@@ -1,8 +1,7 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.schemas import WishlistCreate, WishlistRead
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/wishlist", tags=["wishlist"])
 

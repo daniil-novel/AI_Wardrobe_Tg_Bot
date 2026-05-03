@@ -1,10 +1,13 @@
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.config import get_settings
-from aiwardrobe_core.schemas import PrivacyReceiptRead, PurchaseSimulationRead, PurchaseSimulationRequest
+from aiwardrobe_core.schemas import (
+    PrivacyReceiptRead,
+    PurchaseSimulationRead,
+    PurchaseSimulationRequest,
+)
+from fastapi import APIRouter
 
 router = APIRouter(tags=["privacy-and-purchase"])
 
@@ -29,9 +32,7 @@ async def purchase_simulator(payload: PurchaseSimulationRequest) -> PurchaseSimu
         duplicate_risk=Decimal("70"),
         compatibility_count=2,
         scenario_coverage={"office": "low", "rain": "medium"},
-        recommendation=(
-            "Я бы не спешил покупать: похожая вещь уже есть, а новая закрывает мало сценариев."
-        ),
+        recommendation=("Я бы не спешил покупать: похожая вещь уже есть, а новая закрывает мало сценариев."),
     )
 
 

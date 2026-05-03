@@ -1,10 +1,9 @@
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.enums import AvailabilityStatus, GarmentStatus
 from aiwardrobe_core.schemas import GarmentItemRead, GarmentItemUpdate
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/items", tags=["garment-items"])
 

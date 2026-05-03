@@ -5,7 +5,11 @@ from urllib.parse import urlencode
 from uuid import uuid4
 
 from aiwardrobe_core.config import Settings
-from aiwardrobe_core.security import create_access_token, decode_access_token, validate_telegram_init_data
+from aiwardrobe_core.security import (
+    create_access_token,
+    decode_access_token,
+    validate_telegram_init_data,
+)
 
 
 def signed_init_data(bot_token: str) -> str:

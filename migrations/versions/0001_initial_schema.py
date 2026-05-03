@@ -5,10 +5,9 @@ Revises:
 Create Date: 2026-05-03
 """
 
-from alembic import op
-
 from aiwardrobe_core import models as _models  # noqa: F401
 from aiwardrobe_core.db import Base
+from alembic import op
 
 revision = "0001_initial_schema"
 down_revision = None

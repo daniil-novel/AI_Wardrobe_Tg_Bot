@@ -16,6 +16,7 @@ build/
 venv/
 node_modules/
 apps/miniapp/dist/
+apps/miniapp/tsconfig.tsbuildinfo
 .turbo/
 .idea/
 .vscode/

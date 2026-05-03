@@ -1,11 +1,14 @@
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
-
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.schemas import TelegramAuthRequest, TokenPair
-from aiwardrobe_core.security import TelegramAuthError, create_access_token, validate_telegram_init_data
+from aiwardrobe_core.security import (
+    TelegramAuthError,
+    create_access_token,
+    validate_telegram_init_data,
+)
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -26,7 +29,7 @@ async def telegram_auth(payload: TelegramAuthRequest) -> TokenPair:
     user_raw = parsed.get("user")
     if not user_raw:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telegram user is missing.")
-    telegram_user = json.loads(user_raw)
+    json.loads(user_raw)
     stable_user_uuid = uuid4()
     # Persistence is intentionally handled by the users service in the next iteration.
     # The contract returns a real signed JWT and never trusts client-side user fields.

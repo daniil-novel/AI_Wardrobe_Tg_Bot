@@ -1,9 +1,8 @@
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.schemas import MarketplaceResultRead, MarketplaceSearchRequest
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 

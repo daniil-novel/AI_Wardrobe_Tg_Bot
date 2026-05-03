@@ -3,7 +3,18 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, Text, Time
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    Time,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -22,7 +33,6 @@ from aiwardrobe_core.enums import (
     UploadType,
     UserRole,
 )
-
 
 JsonDict = dict[str, Any]
 JsonList = list[Any]
@@ -91,9 +101,7 @@ class ImageAsset(Base):
     source_url: Mapped[str | None] = mapped_column(Text)
     storage_key: Mapped[str] = mapped_column(String(1024), unique=True)
     license_status: Mapped[str] = mapped_column(String(64), default="private")
-    provenance_label: Mapped[str] = mapped_column(
-        String(64), default=ProvenanceLabel.USER_PROCESSED.value
-    )
+    provenance_label: Mapped[str] = mapped_column(String(64), default=ProvenanceLabel.USER_PROCESSED.value)
     generated_prompt: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -185,9 +193,7 @@ class LookItem(Base):
     __tablename__ = "look_items"
 
     look_id: Mapped[UUID] = mapped_column(ForeignKey("look_cards.id", ondelete="CASCADE"), primary_key=True)
-    item_id: Mapped[UUID] = mapped_column(
-        ForeignKey("garment_items.id", ondelete="CASCADE"), primary_key=True
-    )
+    item_id: Mapped[UUID] = mapped_column(ForeignKey("garment_items.id", ondelete="CASCADE"), primary_key=True)
     sort_order: Mapped[int] = mapped_column(default=0)
     look: Mapped[LookCard] = relationship(back_populates="items")
 
@@ -214,12 +220,8 @@ class OutfitCard(Base, TimestampMixin):
 class OutfitItem(Base):
     __tablename__ = "outfit_items"
 
-    outfit_id: Mapped[UUID] = mapped_column(
-        ForeignKey("outfit_cards.id", ondelete="CASCADE"), primary_key=True
-    )
-    item_id: Mapped[UUID] = mapped_column(
-        ForeignKey("garment_items.id", ondelete="CASCADE"), primary_key=True
-    )
+    outfit_id: Mapped[UUID] = mapped_column(ForeignKey("outfit_cards.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[UUID] = mapped_column(ForeignKey("garment_items.id", ondelete="CASCADE"), primary_key=True)
     role: Mapped[str | None] = mapped_column(String(64))
     outfit: Mapped[OutfitCard] = relationship(back_populates="items")
 

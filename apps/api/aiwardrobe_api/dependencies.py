@@ -1,10 +1,9 @@
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from aiwardrobe_core.db import get_session
 from aiwardrobe_core.security import decode_access_token
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def get_db_session() -> AsyncSession:

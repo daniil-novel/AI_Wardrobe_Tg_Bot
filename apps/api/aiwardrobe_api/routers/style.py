@@ -1,9 +1,8 @@
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
-
 from aiwardrobe_core.schemas import StyleDnaRead, StyleRuleCreate, StyleRuleRead, WardrobeHealthRead
+from fastapi import APIRouter
 
 router = APIRouter(tags=["style"])
 

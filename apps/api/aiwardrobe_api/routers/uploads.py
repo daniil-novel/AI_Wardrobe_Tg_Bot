@@ -1,7 +1,5 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.enums import ProcessingStatus
 from aiwardrobe_core.schemas import (
@@ -12,6 +10,7 @@ from aiwardrobe_core.schemas import (
     UploadStatus,
 )
 from aiwardrobe_core.storage import ObjectStorage, build_storage_key
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 

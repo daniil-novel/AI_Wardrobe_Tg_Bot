@@ -1,10 +1,9 @@
 import asyncio
 from typing import Any
 
-from celery.utils.log import get_task_logger
-
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.llm_gateway import LlmGateway
+from celery.utils.log import get_task_logger
 
 from .celery_app import celery_app
 
@@ -20,7 +19,8 @@ def analyze_upload(self: Any, upload_id: str, signed_image_url: str) -> dict[str
     async def run() -> dict[str, Any]:
         result = await LlmGateway(settings).analyze_image(
             signed_image_url,
-            "Analyze the clothing image and return image_type, item fields, season, color, style, designer_attributes and confidence.",
+            "Analyze the clothing image and return image_type, item fields, season, color, "
+            "style, designer_attributes and confidence.",
         )
         return result.model_dump()
 

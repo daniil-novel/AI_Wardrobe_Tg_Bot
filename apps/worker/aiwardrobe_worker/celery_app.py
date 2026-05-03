@@ -1,6 +1,5 @@
-from celery import Celery
-
 from aiwardrobe_core.config import get_settings
+from celery import Celery
 
 settings = get_settings()
 

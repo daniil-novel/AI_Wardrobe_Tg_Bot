@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from aiwardrobe_core.config import get_settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,7 +20,6 @@ from aiwardrobe_api.routers import (
     uploads,
     wishlist,
 )
-from aiwardrobe_core.config import get_settings
 
 
 @asynccontextmanager

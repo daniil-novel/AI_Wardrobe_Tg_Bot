@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import UUID, uuid4
 
 import aioboto3
@@ -23,7 +24,7 @@ class ObjectStorage:
             aws_secret_access_key=self.settings.s3_secret_access_key,
             region_name=self.settings.s3_region,
         ) as client:
-            return await client.generate_presigned_url(
+            signed_url = await client.generate_presigned_url(
                 "put_object",
                 Params={
                     "Bucket": self.settings.s3_bucket,
@@ -32,6 +33,7 @@ class ObjectStorage:
                 },
                 ExpiresIn=self.settings.signed_url_ttl_seconds,
             )
+            return cast(str, signed_url)
 
     async def create_presigned_get_url(self, storage_key: str) -> str:
         session = aioboto3.Session()
@@ -42,8 +44,9 @@ class ObjectStorage:
             aws_secret_access_key=self.settings.s3_secret_access_key,
             region_name=self.settings.s3_region,
         ) as client:
-            return await client.generate_presigned_url(
+            signed_url = await client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": self.settings.s3_bucket, "Key": storage_key},
                 ExpiresIn=self.settings.signed_url_ttl_seconds,
             )
+            return cast(str, signed_url)

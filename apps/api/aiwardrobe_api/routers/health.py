@@ -1,7 +1,6 @@
-from fastapi import APIRouter
-
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.schemas import HealthResponse
+from fastapi import APIRouter
 
 router = APIRouter(tags=["health"])
 
