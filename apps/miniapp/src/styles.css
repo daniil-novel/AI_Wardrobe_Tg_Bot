@@ -58,6 +58,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .app-shell {
   min-height: 100vh;
   max-width: 520px;
@@ -125,6 +130,15 @@ button {
   border: 1px solid var(--border-soft);
   border-radius: 50%;
   background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+}
+
+.round-button.active,
+.chip-row button.active,
+.mode-grid button.active,
+.scenario.active,
+.smart-card.active {
+  background: var(--accent-primary);
+  color: var(--bg-surface);
 }
 
 .weather-card,
@@ -264,7 +278,8 @@ button {
 .chip-row button,
 .mode-grid button,
 .tabs button,
-.section-head button {
+.section-head button,
+.wide-primary {
   min-height: 40px;
   border-radius: 16px;
   background: var(--bg-surface-muted);
@@ -273,9 +288,15 @@ button {
 }
 
 .action-row .primary,
-.upload-card .primary {
+.upload-card .primary,
+.wide-primary {
   background: var(--accent-primary);
   color: var(--bg-surface);
+}
+
+.wide-primary {
+  width: 100%;
+  min-height: 50px;
 }
 
 .section-head h2 {
@@ -305,6 +326,8 @@ button {
 
 .scenario {
   display: grid;
+  color: var(--text-primary);
+  text-align: left;
   gap: 6px;
   min-height: 112px;
   border-radius: 24px;
@@ -332,9 +355,22 @@ button {
   border-radius: 999px;
 }
 
-.tabs .active {
+.tabs .active,
+.chip-row .active {
   background: var(--accent-primary);
   color: var(--bg-surface);
+}
+
+.search-input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 0 14px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
 }
 
 .health-card,
@@ -356,10 +392,33 @@ button {
   padding: 8px;
 }
 
+.garment-card[role="button"] {
+  cursor: pointer;
+}
+
+.garment-card.selected {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}
+
 .garment-image {
   position: relative;
   aspect-ratio: 4 / 5;
   border-radius: 20px;
+}
+
+.select-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 4px;
+  background: var(--bg-surface);
+  color: var(--success);
 }
 
 .garment-meta {
@@ -440,6 +499,10 @@ button {
   font-weight: 800;
 }
 
+.file-input {
+  display: none;
+}
+
 .mode-grid {
   grid-template-columns: repeat(3, 1fr);
 }
@@ -452,6 +515,10 @@ button {
   min-height: 76px;
   border-radius: 20px;
   padding: 14px;
+}
+
+.smart-card[role="button"] {
+  cursor: pointer;
 }
 
 .smart-card h3 {
@@ -482,6 +549,89 @@ button {
   gap: 14px;
   border-radius: 28px;
   padding: 16px;
+}
+
+.processing-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 24px;
+  padding: 16px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.processing-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-head span {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-surface-muted);
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--success), var(--info));
+  transition: width 180ms ease;
+}
+
+.toast {
+  position: fixed;
+  right: max(16px, calc((100vw - 520px) / 2 + 16px));
+  bottom: calc(94px + env(safe-area-inset-bottom));
+  left: max(16px, calc((100vw - 520px) / 2 + 16px));
+  z-index: 10;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  box-shadow: var(--shadow-hero);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+  backdrop-filter: blur(20px);
+}
+
+.toast.success {
+  color: var(--success);
+}
+
+.toast.error {
+  color: var(--danger);
+}
+
+.toast.warning {
+  color: var(--warning);
+}
+
+.spin {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .look-collage {

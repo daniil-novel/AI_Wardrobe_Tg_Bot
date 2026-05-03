@@ -53,3 +53,43 @@ def test_openrouter_real_mode_is_explicit_when_key_is_missing() -> None:
 
     assert response.status_code == 503
     assert "OPENROUTER_API_KEY" in response.json()["detail"]
+
+
+def test_upload_photo_lifecycle_accepts_image_files() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/uploads/file?upload_type=item",
+        files={"file": ("shirt.jpg", b"fake-image-bytes", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "queued"
+    assert payload["progress"] == 25
+    assert payload["filename"] == "shirt.jpg"
+    assert payload["upload_type"] == "item"
+
+    upload_id = payload["id"]
+    status_response = client.get(f"/uploads/{upload_id}")
+    assert status_response.status_code == 200
+    assert status_response.json()["id"] == upload_id
+
+    retry_response = client.post(f"/uploads/{upload_id}/retry")
+    assert retry_response.status_code == 200
+    assert retry_response.json()["status"] == "queued"
+
+    delete_response = client.delete(f"/uploads/{upload_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["status"] == "deleted"
+
+
+def test_upload_photo_rejects_non_images() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/uploads/file?upload_type=item",
+        files={"file": ("notes.txt", b"plain text", "text/plain")},
+    )
+
+    assert response.status_code == 400

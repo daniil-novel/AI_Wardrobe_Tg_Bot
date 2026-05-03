@@ -26,3 +26,15 @@ export type OutfitCard = {
   items: string[];
   reason: string;
 };
+
+export type UploadStatus = {
+  id: string;
+  status: "queued" | "processing" | "completed" | "failed" | string;
+  task_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  filename?: string | null;
+  upload_type?: string | null;
+  progress: number;
+  result_title?: string | null;
+};

@@ -24,4 +24,5 @@ def test_env_example_exposes_port_overrides_without_secrets() -> None:
 
     for key in ("API_HOST_PORT", "MINIAPP_HOST_PORT", "POSTGRES_HOST_PORT"):
         assert key in env_example
+    assert "INTERNAL_API_URL=http://api:8000" in env_example
     assert "OPENROUTER_API_KEY=" in env_example

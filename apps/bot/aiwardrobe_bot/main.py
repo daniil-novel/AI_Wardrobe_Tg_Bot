@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -9,6 +10,19 @@ from aiwardrobe_core.config import get_settings
 from aiwardrobe_bot.keyboards import main_keyboard, result_keyboard
 
 router = Router()
+
+
+async def register_telegram_upload(telegram_file_id: str) -> str:
+    settings = get_settings()
+    api_url = (settings.internal_api_url or settings.public_api_url).rstrip("/")
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{api_url}/uploads/from-telegram",
+            json={"telegram_file_id": telegram_file_id, "upload_type": "auto"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    return str(payload["id"])
 
 
 @router.message(Command("start"))
@@ -79,10 +93,13 @@ async def photo_upload(message: Message) -> None:
     if not message.photo:
         return
     photo = message.photo[-1]
-    await message.answer(
-        f"Фото принято. file_id: {photo.file_id[:16]}... Обработка должна идти через backend queue.",
-        reply_markup=result_keyboard(settings.miniapp_public_url),
-    )
+    try:
+        upload_id = await register_telegram_upload(photo.file_id)
+        text = f"Фото принято. Загрузка {upload_id[:8]} поставлена в очередь AI-обработки."
+    except httpx.HTTPError as exc:
+        logging.exception("Failed to register Telegram upload")
+        text = f"Фото получено, но backend сейчас недоступен: {exc.__class__.__name__}. Попробуйте ещё раз."
+    await message.answer(text, reply_markup=result_keyboard(settings.miniapp_public_url))
 
 
 async def main() -> None:

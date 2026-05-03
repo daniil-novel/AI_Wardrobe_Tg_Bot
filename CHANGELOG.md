@@ -8,3 +8,4 @@
 - Added Docker Compose local stack with PostgreSQL, Redis, MinIO, API, bot, worker and Mini App.
 - Added Ruff, Mypy, pre-commit, env template and deployment documentation.
 - Added root API route, optional local env handling, port overrides, smoke tests and deployment contract tests.
+- Wired Mini App controls, direct photo upload, upload status polling, retry/delete actions and Telegram bot photo registration through the backend upload API.

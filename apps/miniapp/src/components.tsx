@@ -84,10 +84,35 @@ export function ProvenanceBadge({ type }: { type: GarmentCard["provenance"] }) {
 }
 
 export function GarmentTile({ item, selectable = false }: { item: GarmentCard; selectable?: boolean }) {
+  return <InteractiveGarmentTile item={item} selectable={selectable} />;
+}
+
+export function InteractiveGarmentTile({
+  item,
+  selectable = false,
+  selected = false,
+  onClick,
+}: {
+  item: GarmentCard;
+  selectable?: boolean;
+  selected?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <article className={selectable ? "garment-card selectable" : "garment-card"}>
+    <article
+      className={`garment-card${selectable ? " selectable" : ""}${selected ? " selected" : ""}`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <div className={`garment-image ${item.imageClass}`}>
-        {selectable ? <Check className="select-check" size={18} /> : null}
+        {selectable || selected ? <Check className="select-check" size={18} /> : null}
       </div>
       <div className="garment-meta">
         <div>
@@ -117,10 +142,14 @@ export function SmartCard({
   icon,
   title,
   text,
+  active = false,
+  onClick,
 }: {
   icon: "upload" | "bot" | "archive" | "calendar" | "layers" | "camera" | "search";
   title: string;
   text: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   const icons = {
     upload: Upload,
@@ -133,7 +162,18 @@ export function SmartCard({
   };
   const Icon = icons[icon];
   return (
-    <article className="smart-card">
+    <article
+      className={active ? "smart-card active" : "smart-card"}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <Icon size={20} />
       <div>
         <h3>{title}</h3>

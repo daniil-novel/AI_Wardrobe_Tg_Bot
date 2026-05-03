@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     public_api_url: str = "http://localhost:8000"
+    internal_api_url: str = ""
     miniapp_public_url: str = "https://your-tunnel.example"
 
     database_url: str = "postgresql+asyncpg://ai_wardrobe:change-me@postgres:5432/ai_wardrobe"

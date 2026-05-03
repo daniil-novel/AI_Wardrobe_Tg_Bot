@@ -11,6 +11,31 @@ def test_miniapp_has_expected_entrypoints_and_tabs() -> None:
     assert '"build": "tsc -b && vite build"' in package_file
 
 
+def test_miniapp_upload_and_buttons_are_wired_to_actions() -> None:
+    app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
+    api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
+
+    for expected in (
+        'type="file"',
+        "uploadPhoto(file, mode)",
+        "getUploadStatus(upload.id)",
+        "retryUpload",
+        "deleteUpload",
+    ):
+        assert expected in app_file
+
+    for expected in (
+        "onClick={chooseOutfit}",
+        "onClick={makeWarmer}",
+        "onClick={anotherOutfit}",
+        "onChange={setActiveTab}",
+    ):
+        assert expected in app_file
+
+    assert "/uploads/file" in api_file
+    assert "FormData" in api_file
+
+
 def test_design_tokens_are_mapped_to_css_variables() -> None:
     styles = Path("apps/miniapp/src/styles.css").read_text(encoding="utf-8")
 

@@ -10,6 +10,7 @@ Telegram-native AI digital wardrobe: FastAPI backend, aiogram bot, Celery worker
 - Celery workers for image analysis, research, recommendations and notifications.
 - aiogram v3 Telegram bot with `/start`, `/upload`, `/wardrobe`, `/favorites`, `/delete_me` and photo intake.
 - React + TypeScript + Vite Mini App with mobile-first screens: Today, Wardrobe, Add, Designer, Favorites.
+  Core controls are wired: tab navigation, outfit actions, wardrobe filters, item selection, favorites tabs and direct image upload with status polling.
 - Real-provider wiring only: OpenRouter and Telegram require real secrets in `.env`.
 
 ## Local Run
@@ -34,6 +35,7 @@ If `8000`, `5173`, `5432`, `6379`, `9000` or `9001` are already occupied, set ov
 ```text
 API_HOST_PORT=8010
 PUBLIC_API_URL=http://localhost:8010
+INTERNAL_API_URL=http://api:8000
 MINIAPP_HOST_PORT=5174
 POSTGRES_HOST_PORT=55432
 REDIS_HOST_PORT=56379
@@ -62,6 +64,9 @@ The bot is behind a profile because it cannot run without a real Telegram token:
 ```bash
 docker compose --profile telegram up bot
 ```
+
+When the bot runs inside Docker it posts Telegram photo `file_id` values to `INTERNAL_API_URL`.
+When the Mini App runs in the browser it uses `PUBLIC_API_URL` or `VITE_API_URL` for direct multipart uploads.
 
 Telegram Mini Apps require HTTPS for real WebView testing. Use a tunnel such as Cloudflare Tunnel or ngrok and set `MINIAPP_PUBLIC_URL` to that URL.
 
