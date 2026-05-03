@@ -1,0 +1,1 @@
+"""aiogram Telegram bot package."""
