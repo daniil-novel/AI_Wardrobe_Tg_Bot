@@ -17,6 +17,8 @@ docker compose exec api alembic upgrade head
 7. Switch bot from polling to webhook mode before high traffic.
 8. Configure backups for PostgreSQL and object storage.
 
+The default compose file supports host port overrides through environment variables. On shared servers, set `API_HOST_PORT`, `MINIAPP_HOST_PORT`, `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `MINIO_HOST_PORT` and `MINIO_CONSOLE_HOST_PORT` explicitly.
+
 ## Railway, Render Or Similar
 
 - API service: Dockerfile command `uvicorn aiwardrobe_api.main:create_app --factory`.

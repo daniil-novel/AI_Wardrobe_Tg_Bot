@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from aiwardrobe_core.config import get_settings
+from aiwardrobe_core.schemas import RootResponse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -60,6 +61,32 @@ def create_app() -> FastAPI:
         billing.router,
     ):
         app.include_router(router)
+
+    @app.get("/", response_model=RootResponse, tags=["root"])
+    async def root() -> RootResponse:
+        return RootResponse(
+            name="AI Digital Wardrobe API",
+            version=app.version,
+            status="ok",
+            docs_url="/docs",
+            health_url="/health",
+            miniapp_url=settings.miniapp_public_url,
+            api_groups=[
+                "auth",
+                "uploads",
+                "items",
+                "looks",
+                "outfits",
+                "ai",
+                "designer",
+                "marketplace",
+                "wishlist",
+                "style-dna",
+                "privacy",
+                "billing",
+            ],
+        )
+
     return app
 
 

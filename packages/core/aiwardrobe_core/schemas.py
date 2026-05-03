@@ -17,6 +17,16 @@ class HealthResponse(BaseModel):
     missing_runtime_secrets: list[str]
 
 
+class RootResponse(BaseModel):
+    name: str
+    version: str
+    status: str
+    docs_url: str
+    health_url: str
+    miniapp_url: str
+    api_groups: list[str]
+
+
 class TelegramAuthRequest(BaseModel):
     init_data: str = Field(min_length=1)
 

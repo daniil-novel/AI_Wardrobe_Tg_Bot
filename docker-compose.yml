@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ai_wardrobe}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -32,17 +32,45 @@ services:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
 
   api:
     build: .
-    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+      MINIAPP_PUBLIC_URL: ${MINIAPP_PUBLIC_URL:-http://localhost:5173}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
+      SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-with-a-long-random-secret}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
+      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-ai-wardrobe-private}
+      S3_REGION: ${S3_REGION:-us-east-1}
     command: uvicorn aiwardrobe_api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - .:/app
     depends_on:
@@ -53,17 +81,35 @@ services:
 
   worker:
     build: .
-    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
+      SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
+      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
     command: celery -A aiwardrobe_worker.celery_app:celery_app worker --loglevel=INFO
     volumes:
       - .:/app
     depends_on:
-      - api
-      - redis
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   bot:
     build: .
-    env_file: .env
+    profiles:
+      - telegram
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      MINIAPP_PUBLIC_URL: ${MINIAPP_PUBLIC_URL:-http://localhost:5173}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
     command: python -m aiwardrobe_bot.main
     volumes:
       - .:/app
@@ -78,7 +124,13 @@ services:
     environment:
       VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "5173:5173"
+      - "${MINIAPP_HOST_PORT:-5173}:5173"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
     volumes:
       - .:/app
 

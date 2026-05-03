@@ -14,19 +14,29 @@ Telegram-native AI digital wardrobe: FastAPI backend, aiogram bot, Celery worker
 
 ## Local Run
 
-1. Create env:
+1. Create env when you need real provider secrets or port overrides:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Fill required secrets:
+2. Fill secrets locally. Do not commit `.env`:
 
 ```text
 TELEGRAM_BOT_TOKEN=
 OPENROUTER_API_KEY=
 JWT_SECRET_KEY=
 MINIAPP_PUBLIC_URL=
+```
+
+If `8000`, `5173`, `5432`, `6379`, `9000` or `9001` are already occupied, set overrides in `.env`, for example:
+
+```text
+API_HOST_PORT=8010
+PUBLIC_API_URL=http://localhost:8010
+MINIAPP_HOST_PORT=5174
+POSTGRES_HOST_PORT=55432
+REDIS_HOST_PORT=56379
 ```
 
 3. Start local stack:
@@ -47,6 +57,12 @@ docker compose exec api alembic upgrade head
 - Mini App dev server: `http://localhost:5173`
 - MinIO Console: `http://localhost:9001`
 
+The bot is behind a profile because it cannot run without a real Telegram token:
+
+```bash
+docker compose --profile telegram up bot
+```
+
 Telegram Mini Apps require HTTPS for real WebView testing. Use a tunnel such as Cloudflare Tunnel or ngrok and set `MINIAPP_PUBLIC_URL` to that URL.
 
 ## Local Run Without Telegram Server
@@ -61,6 +77,12 @@ ruff format --check .
 mypy packages/core apps/api apps/bot apps/worker
 pytest
 npm --prefix apps/miniapp run build
+```
+
+PowerShell smoke check:
+
+```powershell
+./scripts/smoke-local.ps1 -ApiUrl http://localhost:8000 -MiniAppUrl http://localhost:5173
 ```
 
 ## Repository Layout
