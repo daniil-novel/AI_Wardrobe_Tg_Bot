@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "product": "AI Digital Wardrobe",
+    "version": "0.2.2 Design Tokens",
+    "platform": "Telegram Mini App"
+  },
+  "color": {
+    "light": {
+      "bg.canvas": "#F8F6F1",
+      "bg.warm": "#F2EDE4",
+      "bg.surface": "#FFFFFF",
+      "bg.surfaceSoft": "#FBFAF7",
+      "bg.surfaceMuted": "#ECE8DF",
+      "text.primary": "#171717",
+      "text.secondary": "#6B6B6B",
+      "text.tertiary": "#9A9A9A",
+      "accent.primary": "#111111",
+      "semantic.success": "#2F7D4A",
+      "semantic.warning": "#A66A00",
+      "semantic.danger": "#B42318",
+      "semantic.info": "#2E5AAC",
+      "border.soft": "rgba(17,17,17,0.08)"
+    },
+    "dark": {
+      "bg.canvas": "#101010",
+      "bg.surface": "#1A1A1A",
+      "bg.surfaceSoft": "#222222",
+      "bg.surfaceMuted": "#2A2A2A",
+      "text.primary": "#F5F5F5",
+      "text.secondary": "#B6B6B6",
+      "text.tertiary": "#7E7E7E",
+      "accent.primary": "#FFFFFF",
+      "border.soft": "rgba(255,255,255,0.10)"
+    }
+  },
+  "typography": {
+    "fontFamily": "-apple-system, BlinkMacSystemFont, SF Pro Display, Inter, Roboto, sans-serif",
+    "display.small": {
+      "fontSize": 32,
+      "lineHeight": 38,
+      "fontWeight": 650
+    },
+    "title.large": {
+      "fontSize": 24,
+      "lineHeight": 30,
+      "fontWeight": 650
+    },
+    "title.medium": {
+      "fontSize": 20,
+      "lineHeight": 26,
+      "fontWeight": 650
+    },
+    "body.large": {
+      "fontSize": 16,
+      "lineHeight": 24,
+      "fontWeight": 450
+    },
+    "body.medium": {
+      "fontSize": 15,
+      "lineHeight": 22,
+      "fontWeight": 450
+    },
+    "body.small": {
+      "fontSize": 13,
+      "lineHeight": 18,
+      "fontWeight": 450
+    },
+    "caption": {
+      "fontSize": 11,
+      "lineHeight": 14,
+      "fontWeight": 550
+    },
+    "micro": {
+      "fontSize": 10,
+      "lineHeight": 12,
+      "fontWeight": 600
+    }
+  },
+  "spacing": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "8": 32,
+    "10": 40
+  },
+  "radius": {
+    "xs": 8,
+    "sm": 12,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "full": 999
+  },
+  "elevation": {
+    "light.card": "0 12px 32px rgba(16,16,16,0.06)",
+    "light.hero": "0 18px 48px rgba(16,16,16,0.10)",
+    "dark.card": "0 0 0 1px rgba(255,255,255,0.10)"
+  },
+  "motion": {
+    "screenTransition": {
+      "durationMs": 220,
+      "easing": "easeOut",
+      "from": {
+        "opacity": 0,
+        "y": 8
+      }
+    },
+    "sheetTransition": {
+      "durationMs": 220,
+      "easing": "easeOut"
+    },
+    "microInteraction": {
+      "durationMs": 140,
+      "easing": "easeOut"
+    }
+  },
+  "components": {
+    "button.primary": {
+      "height": 52,
+      "radius": 16,
+      "background": "accent.primary",
+      "text": "inverse"
+    },
+    "chip": {
+      "height": 32,
+      "radius": 999,
+      "paddingX": 14
+    },
+    "garmentCard": {
+      "radius": 26,
+      "imageRatio": "4:5",
+      "padding": 8
+    },
+    "outfitCard": {
+      "radius": 34,
+      "padding": 16
+    },
+    "bottomNav": {
+      "height": 84,
+      "blur": true,
+      "items": 5
+    }
+  }
+}
