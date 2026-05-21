@@ -37,6 +37,14 @@ class TokenPair(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
 class UserProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,6 +79,10 @@ class UploadCompleteRequest(BaseModel):
 
 class TelegramUploadRequest(BaseModel):
     telegram_file_id: str
+    telegram_id: int
+    telegram_username: str | None = None
+    first_name: str | None = None
+    language: str = "ru"
     upload_type: str = "auto"
 
 

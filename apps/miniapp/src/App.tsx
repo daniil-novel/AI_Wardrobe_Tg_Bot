@@ -1,7 +1,7 @@
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CloudRain, Heart, Loader2, Search, Sparkles, Upload } from "lucide-react";
 
-import { deleteUpload, getUploadStatus, retryUpload, uploadPhoto } from "./api";
+import { authenticateWithTelegram, deleteUpload, getUploadStatus, hasAccessToken, listWardrobeItems, retryUpload, uploadPhoto } from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
 import { garments, quickScenarios, todayOutfit } from "./data";
 import { getTelegramWebApp } from "./telegram";
@@ -124,9 +124,22 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [remoteGarments, setRemoteGarments] = useState<GarmentCard[]>([]);
   const chips = ["Все", "Верх", "Низ", "Обувь", "Демисезон", "База", "Проверить"];
+  const wardrobeItems = remoteGarments.length > 0 ? remoteGarments : garments;
 
-  const visibleGarments = garments.filter((item) => {
+  useEffect(() => {
+    if (!hasAccessToken()) {
+      return;
+    }
+    void listWardrobeItems()
+      .then(setRemoteGarments)
+      .catch((error: unknown) => {
+        onNotify(error instanceof Error ? error.message : "Не удалось загрузить гардероб.", "error");
+      });
+  }, [onNotify]);
+
+  const visibleGarments = wardrobeItems.filter((item) => {
     const byChip =
       activeChip === "Все" ||
       item.role.includes(activeChip) ||
@@ -479,6 +492,19 @@ export default function App() {
     webApp?.ready();
     webApp?.expand();
   }, [webApp]);
+
+  useEffect(() => {
+    if (hasAccessToken()) {
+      return;
+    }
+    if (!webApp?.initData) {
+      notify("Откройте Mini App внутри Telegram для входа.", "warning");
+      return;
+    }
+    void authenticateWithTelegram(webApp.initData).catch((error: unknown) => {
+      notify(error instanceof Error ? error.message : "Не удалось выполнить вход через Telegram.", "error");
+    });
+  }, [notify, webApp]);
 
   useEffect(() => {
     webApp?.HapticFeedback?.impactOccurred("light");

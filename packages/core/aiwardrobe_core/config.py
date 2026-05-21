@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "ai-wardrobe-private"
     s3_region: str = "us-east-1"
     signed_url_ttl_seconds: int = 900
+    max_upload_bytes: int = 10 * 1024 * 1024
+    allowed_upload_content_types: str = "image/jpeg,image/png,image/webp"
+    enable_billing_payments: bool = False
+    enable_marketplace_search: bool = False
+    enable_polling_bot: bool = False
 
     free_items_limit: int = 20
     free_ai_analyses_per_month: int = 5
@@ -59,6 +64,32 @@ class Settings(BaseSettings):
             if not value or value == "replace-with-a-long-random-secret":
                 missing.append(field_name.upper())
         return missing
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def allowed_upload_content_type_set(self) -> set[str]:
+        return {content_type.strip() for content_type in self.allowed_upload_content_types.split(",") if content_type}
+
+    def production_startup_errors(self) -> list[str]:
+        if self.app_env != "production":
+            return []
+
+        errors: list[str] = []
+        default_values = {
+            "JWT_SECRET_KEY": self.jwt_secret_key == "replace-with-a-long-random-secret",
+            "POSTGRES_PASSWORD": "change-me" in self.database_url or "change-me" in self.sync_database_url,
+            "S3_ACCESS_KEY_ID": self.s3_access_key_id == "minioadmin",
+            "S3_SECRET_ACCESS_KEY": self.s3_secret_access_key == "minioadmin",
+        }
+        errors.extend(name for name, is_default in default_values.items() if is_default)
+
+        required = {
+            "TELEGRAM_BOT_TOKEN": self.telegram_bot_token,
+            "TELEGRAM_WEBHOOK_SECRET": self.telegram_webhook_secret,
+            "OPENROUTER_API_KEY": self.openrouter_api_key,
+        }
+        errors.extend(name for name, value in required.items() if not value)
+        return sorted(set(errors))
 
     @computed_field  # type: ignore[prop-decorator]
     @property

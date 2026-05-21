@@ -5,6 +5,8 @@ import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 from aiwardrobe_core.config import get_settings
 
 from aiwardrobe_bot.keyboards import main_keyboard, result_keyboard
@@ -12,13 +14,25 @@ from aiwardrobe_bot.keyboards import main_keyboard, result_keyboard
 router = Router()
 
 
-async def register_telegram_upload(telegram_file_id: str) -> str:
+async def register_telegram_upload(message: Message, telegram_file_id: str) -> str:
     settings = get_settings()
+    if not settings.telegram_webhook_secret:
+        raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required for Telegram upload registration.")
+    if message.from_user is None:
+        raise RuntimeError("Telegram user is required for upload registration.")
     api_url = (settings.internal_api_url or settings.public_api_url).rstrip("/")
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{api_url}/uploads/from-telegram",
-            json={"telegram_file_id": telegram_file_id, "upload_type": "auto"},
+            headers={"X-Telegram-Webhook-Secret": settings.telegram_webhook_secret},
+            json={
+                "telegram_file_id": telegram_file_id,
+                "telegram_id": message.from_user.id,
+                "telegram_username": message.from_user.username,
+                "first_name": message.from_user.first_name,
+                "language": message.from_user.language_code or "ru",
+                "upload_type": "auto",
+            },
         )
         response.raise_for_status()
         payload = response.json()
@@ -94,8 +108,8 @@ async def photo_upload(message: Message) -> None:
         return
     photo = message.photo[-1]
     try:
-        upload_id = await register_telegram_upload(photo.file_id)
-        text = f"Фото принято. Загрузка {upload_id[:8]} поставлена в очередь AI-обработки."
+        upload_id = await register_telegram_upload(message, photo.file_id)
+        text = f"Фото принято. Загрузка {upload_id[:8]} зарегистрирована для переноса в private storage."
     except httpx.HTTPError as exc:
         logging.exception("Failed to register Telegram upload")
         text = f"Фото получено, но backend сейчас недоступен: {exc.__class__.__name__}. Попробуйте ещё раз."
@@ -110,6 +124,19 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
+    if settings.app_env == "production" and not settings.enable_polling_bot:
+        if not settings.telegram_webhook_secret:
+            raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required for production webhook mode.")
+        webhook_path = "/telegram/webhook"
+        webhook_url = f"{settings.public_api_url.rstrip()}{webhook_path}"
+        await bot.set_webhook(webhook_url, secret_token=settings.telegram_webhook_secret)
+        app = web.Application()
+        SimpleRequestHandler(dispatcher=dispatcher, bot=bot, secret_token=settings.telegram_webhook_secret).register(
+            app, path=webhook_path
+        )
+        setup_application(app, dispatcher, bot=bot)
+        web.run_app(app, host=settings.api_host, port=settings.api_port)
+        return
     await dispatcher.start_polling(bot)
 
 

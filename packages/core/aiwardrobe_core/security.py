@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from hmac import compare_digest, new
+from secrets import token_urlsafe
 from typing import cast
 from urllib.parse import parse_qsl
 from uuid import UUID
@@ -45,6 +46,14 @@ def create_access_token(user_id: UUID, settings: Settings | None = None) -> str:
         "exp": int((now + timedelta(minutes=resolved.access_token_expire_minutes)).timestamp()),
     }
     return cast(str, jwt.encode(payload, resolved.jwt_secret_key, algorithm=resolved.jwt_algorithm))
+
+
+def create_refresh_token() -> str:
+    return token_urlsafe(48)
+
+
+def hash_token(token: str) -> str:
+    return sha256(token.encode()).hexdigest()
 
 
 def decode_access_token(token: str, settings: Settings | None = None) -> UUID:

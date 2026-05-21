@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0-rc.1 - 2026-05-21
+
+- Hardened Telegram auth with persistent user upsert, refresh-token rotation, logout revocation and production startup secret validation.
+- Replaced public sample responses in wardrobe, looks, outfits, wishlist, style, designer, marketplace and privacy flows with authenticated user-scoped database access or explicit disabled-provider errors.
+- Reworked uploads and AI task orchestration to persist upload/image/task state, validate image payloads, enqueue Celery work and persist worker side effects for garment items, privacy receipts and AI request records.
+- Added Mini App Telegram `initData` authentication, bearer-token API client, refresh retry and authenticated wardrobe/upload calls.
+- Added production compose override, readiness/liveness/metrics endpoints, webhook-mode bot startup and release documentation for secrets, migrations, private backing services and readiness checks.
+- Added production hardening and auth-boundary tests; switched local verification to Python 3.12 through `uv run --extra dev`.
+
 ## 0.1.0 - 2026-05-03
 
 - Bootstrapped FastAPI, aiogram, Celery, SQLAlchemy, Alembic and React Mini App monorepo.

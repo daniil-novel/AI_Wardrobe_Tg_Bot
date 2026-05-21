@@ -1,6 +1,7 @@
 export type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
+  initData?: string;
   colorScheme?: "light" | "dark";
   themeParams?: Record<string, string>;
   viewportStableHeight?: number;
