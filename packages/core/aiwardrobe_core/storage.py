@@ -50,3 +50,45 @@ class ObjectStorage:
                 ExpiresIn=self.settings.signed_url_ttl_seconds,
             )
             return cast(str, signed_url)
+
+    async def put_bytes(self, storage_key: str, content: bytes, content_type: str) -> None:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            endpoint_url=self.settings.s3_endpoint_url,
+            aws_access_key_id=self.settings.s3_access_key_id,
+            aws_secret_access_key=self.settings.s3_secret_access_key,
+            region_name=self.settings.s3_region,
+        ) as client:
+            await client.put_object(
+                Bucket=self.settings.s3_bucket,
+                Key=storage_key,
+                Body=content,
+                ContentType=content_type,
+            )
+
+    async def object_exists(self, storage_key: str) -> bool:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            endpoint_url=self.settings.s3_endpoint_url,
+            aws_access_key_id=self.settings.s3_access_key_id,
+            aws_secret_access_key=self.settings.s3_secret_access_key,
+            region_name=self.settings.s3_region,
+        ) as client:
+            try:
+                await client.head_object(Bucket=self.settings.s3_bucket, Key=storage_key)
+            except Exception:
+                return False
+            return True
+
+    async def delete_object(self, storage_key: str) -> None:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            endpoint_url=self.settings.s3_endpoint_url,
+            aws_access_key_id=self.settings.s3_access_key_id,
+            aws_secret_access_key=self.settings.s3_secret_access_key,
+            region_name=self.settings.s3_region,
+        ) as client:
+            await client.delete_object(Bucket=self.settings.s3_bucket, Key=storage_key)

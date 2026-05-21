@@ -79,6 +79,10 @@ class UploadCompleteRequest(BaseModel):
 
 class TelegramUploadRequest(BaseModel):
     telegram_file_id: str
+    telegram_id: int
+    telegram_username: str | None = None
+    first_name: str | None = None
+    language: str = "ru"
     upload_type: str = "auto"
 
 
