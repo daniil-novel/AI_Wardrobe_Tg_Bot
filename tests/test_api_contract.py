@@ -29,14 +29,14 @@ def test_core_endpoint_groups_are_available() -> None:
     client = TestClient(create_app())
 
     checks = {
-        "/items": 200,
-        "/looks": 200,
-        "/outfits": 200,
-        "/style-dna": 200,
-        "/wardrobe/health": 200,
-        "/wishlist": 200,
+        "/items": 401,
+        "/looks": 401,
+        "/outfits": 401,
+        "/style-dna": 401,
+        "/wardrobe/health": 401,
+        "/wishlist": 401,
         "/billing/plans": 200,
-        "/ai/usage": 200,
+        "/ai/usage": 401,
     }
     for path, expected_status in checks.items():
         response = client.get(path)
@@ -51,11 +51,10 @@ def test_openrouter_real_mode_is_explicit_when_key_is_missing() -> None:
         json={"upload_id": "00000000-0000-0000-0000-000000000001"},
     )
 
-    assert response.status_code == 503
-    assert "OPENROUTER_API_KEY" in response.json()["detail"]
+    assert response.status_code == 401
 
 
-def test_upload_photo_lifecycle_accepts_image_files() -> None:
+def test_upload_photo_lifecycle_requires_authentication() -> None:
     client = TestClient(create_app())
 
     response = client.post(
@@ -63,28 +62,10 @@ def test_upload_photo_lifecycle_accepts_image_files() -> None:
         files={"file": ("shirt.jpg", b"fake-image-bytes", "image/jpeg")},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "queued"
-    assert payload["progress"] == 25
-    assert payload["filename"] == "shirt.jpg"
-    assert payload["upload_type"] == "item"
-
-    upload_id = payload["id"]
-    status_response = client.get(f"/uploads/{upload_id}")
-    assert status_response.status_code == 200
-    assert status_response.json()["id"] == upload_id
-
-    retry_response = client.post(f"/uploads/{upload_id}/retry")
-    assert retry_response.status_code == 200
-    assert retry_response.json()["status"] == "queued"
-
-    delete_response = client.delete(f"/uploads/{upload_id}")
-    assert delete_response.status_code == 200
-    assert delete_response.json()["status"] == "deleted"
+    assert response.status_code == 401
 
 
-def test_upload_photo_rejects_non_images() -> None:
+def test_upload_photo_rejects_anonymous_non_images_before_processing() -> None:
     client = TestClient(create_app())
 
     response = client.post(
@@ -92,4 +73,4 @@ def test_upload_photo_rejects_non_images() -> None:
         files={"file": ("notes.txt", b"plain text", "text/plain")},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 401

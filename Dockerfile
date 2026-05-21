@@ -13,7 +13,7 @@ COPY packages ./packages
 COPY alembic.ini ./
 COPY migrations ./migrations
 
-RUN pip install --upgrade pip && pip install ".[dev]"
+RUN pip install --upgrade pip && pip install "."
 
 ENV PYTHONPATH=/app/packages/core:/app/apps/api:/app/apps/bot:/app/apps/worker
 
