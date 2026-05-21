@@ -26,6 +26,9 @@ from aiwardrobe_api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    production_errors = settings.production_startup_errors()
+    if production_errors:
+        raise RuntimeError("Production startup blocked by unsafe configuration: " + ", ".join(production_errors))
     app.state.settings = settings
     yield
 

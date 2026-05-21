@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from aiwardrobe_core.auth_service import ensure_user_exists
 from aiwardrobe_core.db import get_session
 from aiwardrobe_core.security import decode_access_token
 from fastapi import Depends, Header, HTTPException, status
@@ -24,3 +25,12 @@ def get_current_user_id(authorization: str | None = Header(default=None)) -> UUI
 
 CurrentUserId = Depends(get_current_user_id)
 DbSession = Depends(get_db_session)
+
+
+async def get_current_user(user_id: UUID = CurrentUserId, session: AsyncSession = DbSession) -> UUID:
+    if await ensure_user_exists(session, user_id) is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User does not exist.")
+    return user_id
+
+
+CurrentUser = Depends(get_current_user)

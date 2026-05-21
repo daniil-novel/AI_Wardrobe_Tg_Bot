@@ -37,6 +37,14 @@ class TokenPair(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
 class UserProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
