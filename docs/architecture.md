@@ -28,7 +28,7 @@ flowchart LR
 - **FastAPI API** owns auth, DTOs, domain orchestration and public HTTP contracts.
 - **Celery Workers** own image analysis, OpenRouter calls, research, recommendations and notifications.
 - **PostgreSQL** stores relational domain data and JSONB designer attributes.
-- **Redis** stores Celery queues, rate-limit counters, short task state and idempotency keys.
+- **Redis** stores cache state, Celery task results, rate-limit counters, short task state and idempotency keys.
 - **S3-compatible storage** stores private originals, processed images, thumbnails, generated references and share cards.
 - **RabbitMQ** is recommended as the production Celery broker when durable delivery and broker observability matter.
 

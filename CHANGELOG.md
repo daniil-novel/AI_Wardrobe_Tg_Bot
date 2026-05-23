@@ -15,6 +15,7 @@
 - Added structured JSON logging with request ids, latency, status, hashed user identifiers and automatic redaction for tokens, keys, passwords and signed URLs.
 - Added coverage-enabled regression tests for Telegram bot upload registration, worker fail-closed behavior, upload-store state transitions, LLM JSON validation and storage-key sanitization.
 - Added Mermaid architecture and database schema documentation, including the Redis/RabbitMQ/Kafka production broker decision.
+- Added RabbitMQ as the production Celery broker while keeping Redis for cache state, task results and operational counters.
 
 ## 0.1.0 - 2026-05-03
 
