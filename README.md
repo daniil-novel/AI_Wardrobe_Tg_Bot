@@ -4,7 +4,7 @@ Telegram-native AI digital wardrobe: FastAPI backend, aiogram bot, Celery worker
 
 ## What Is Included
 
-- Full v0.2.2 project scaffold based on the supplied TZ, UI/UX spec, design tokens and mobile prototype.
+- Full v0.2.2 service surface based on the supplied TZ, UI/UX spec, design tokens and mobile prototype.
 - FastAPI API with all documented endpoint groups.
 - PostgreSQL schema through SQLAlchemy 2 and Alembic.
 - Celery workers for image analysis, research, recommendations and notifications.
@@ -25,6 +25,7 @@ cp .env.example .env
 
 ```text
 TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=
 OPENROUTER_API_KEY=
 JWT_SECRET_KEY=
 MINIAPP_PUBLIC_URL=
@@ -77,10 +78,10 @@ The API, frontend, PostgreSQL, Redis and MinIO can run locally without exposing 
 ## Checks
 
 ```bash
-ruff check .
-ruff format --check .
-mypy packages/core apps/api apps/bot apps/worker
-pytest
+uv run --extra dev ruff check .
+uv run --extra dev ruff format --check .
+uv run --extra dev mypy packages/core apps/api apps/bot apps/worker
+uv run --extra dev python -m pytest
 npm --prefix apps/miniapp run build
 ```
 

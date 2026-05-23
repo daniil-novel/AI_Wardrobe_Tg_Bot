@@ -36,6 +36,16 @@ def test_miniapp_upload_and_buttons_are_wired_to_actions() -> None:
     assert "FormData" in api_file
 
 
+def test_miniapp_does_not_use_demo_wardrobe_as_runtime_fallback() -> None:
+    app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
+    api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
+
+    assert "todayOutfit" not in app_file
+    assert "garments" not in app_file
+    assert "listWardrobeItems" in api_file
+    assert "listOutfits" in api_file
+
+
 def test_design_tokens_are_mapped_to_css_variables() -> None:
     styles = Path("apps/miniapp/src/styles.css").read_text(encoding="utf-8")
 

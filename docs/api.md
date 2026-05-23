@@ -15,4 +15,6 @@ Implemented endpoint groups:
 - `/privacy`, `/purchase-simulator`, `/capsules`, `/challenges`, `/share`: privacy and v0.2.2 advanced flows.
 - `/billing/plans`: provider-neutral plan surface.
 
-Current implementation returns contract-safe responses for scaffolded business flows. Persistence and advanced recommendation internals are isolated behind the existing module boundaries.
+Runtime user flows are authenticated and user-scoped. Wardrobe, wishlist, style, upload, AI, privacy and outfit
+state is persisted in PostgreSQL, with private image bytes stored in S3-compatible object storage. Endpoints that need
+external production providers return explicit unavailable errors until their provider adapter and secrets are configured.

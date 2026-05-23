@@ -25,6 +25,22 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-ai_wardrobe}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me}
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   minio:
     image: minio/minio:RELEASE.2024-09-13T20-26-02Z
     command: server /data --console-address ":9001"
@@ -36,6 +52,26 @@ services:
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-ai-wardrobe-private}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$${S3_ACCESS_KEY_ID}\" \"$${S3_SECRET_ACCESS_KEY}\"; do sleep 2; done;
+      mc mb --ignore-existing local/\"$${S3_BUCKET}\";
+      "
 
   api:
     build: .
@@ -49,7 +85,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
       SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
       REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-amqp://ai_wardrobe:change-me@rabbitmq:5672//}
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
@@ -63,7 +99,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-ai-wardrobe-private}
       S3_REGION: ${S3_REGION:-us-east-1}
-    command: uvicorn aiwardrobe_api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
+    command: /app/.venv/bin/uvicorn aiwardrobe_api.main:create_app --factory --host 0.0.0.0 --port 8000
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     healthcheck:
@@ -71,13 +107,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - .:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   worker:
     build: .
@@ -85,20 +123,20 @@ services:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
       SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_wardrobe}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ai_wardrobe}
-      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-amqp://ai_wardrobe:change-me@rabbitmq:5672//}
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
       OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
-    command: celery -A aiwardrobe_worker.celery_app:celery_app worker --loglevel=INFO
-    volumes:
-      - .:/app
+    command: /app/.venv/bin/celery -A aiwardrobe_worker.celery_app:celery_app worker --loglevel=INFO --concurrency=${WORKER_CONCURRENCY:-2}
     depends_on:
       api:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   bot:
@@ -111,9 +149,7 @@ services:
       MINIAPP_PUBLIC_URL: ${MINIAPP_PUBLIC_URL:-http://localhost:5173}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:8000}
-    command: python -m aiwardrobe_bot.main
-    volumes:
-      - .:/app
+    command: /app/.venv/bin/python -m aiwardrobe_bot.main
     depends_on:
       - api
       - redis
@@ -138,3 +174,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  rabbitmq_data:

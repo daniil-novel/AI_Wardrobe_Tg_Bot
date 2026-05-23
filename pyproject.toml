@@ -33,6 +33,7 @@ dev = [
   "pre-commit>=3.8.0",
   "pytest>=8.3.3",
   "pytest-asyncio>=0.24.0",
+  "pytest-cov>=5.0.0",
   "ruff>=0.6.9",
   "types-PyJWT>=1.7.1",
 ]
@@ -69,3 +70,19 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = [
+  "--cov=aiwardrobe_core",
+  "--cov=aiwardrobe_api",
+  "--cov=aiwardrobe_bot",
+  "--cov=aiwardrobe_worker",
+  "--cov-report=term-missing",
+  "--cov-fail-under=67",
+]
+
+[tool.coverage.run]
+branch = false
+source = ["aiwardrobe_core", "aiwardrobe_api", "aiwardrobe_bot", "aiwardrobe_worker"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

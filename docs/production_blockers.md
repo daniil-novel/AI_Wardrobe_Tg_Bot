@@ -2,7 +2,7 @@
 
 ## 0. Remediation update — 2026-05-21
 
-Ветка `harden-production-release` закрывает release-blocking поведение scaffold-версии для RC:
+Ветка `harden-production-release` закрывает release-blocking поведение ранней версии для RC:
 
 - `Critical`: auth больше не выдаёт случайный user id; Telegram auth создаёт/обновляет пользователя, refresh token ротируется и отзывается, production startup блокируется на default secrets.
 - `Critical`: пользовательские API больше не возвращают sample-данные наружу; wardrobe, looks, outfits, wishlist, style, designer и privacy endpoint'ы требуют bearer token и фильтруют данные по `user_id`.
@@ -16,9 +16,9 @@
 
 ## 1. Краткое резюме
 
-Текущий проект находится на уровне архитектурного scaffold/prototype: структура сервисов уже задана, есть FastAPI API, Telegram bot, Celery worker, React Telegram Mini App, SQLAlchemy-модели, Alembic, Docker Compose и контрактные тесты. Однако основной пользовательский сценарий пока не является production-ready: значительная часть API возвращает sample/stub-ответы, авторизация не создаёт и не связывает реального пользователя, загрузки хранятся через локальный in-memory store, AI pipeline не сохраняет результаты в БД, а Mini App в основном работает с локальными демо-данными.
+Текущий RC уже использует устойчивую авторизацию, user-scoped API, PostgreSQL/S3 upload state, Celery AI side effects и authenticated Mini App API calls. Этот документ сохраняет исходный список рисков как исторический release checklist; актуальный статус отражён в таблице ниже.
 
-В текущем состоянии выпуск в `prod` невозможен. Для приложения с большим количеством пользователей критично сначала закрыть блокеры по данным, безопасности, очередям, отказоустойчивости, observability, деплою и тестированию. Пока они открыты, релиз создаст риск утечки пользовательских данных, потери загрузок, некорректной авторизации, неуправляемых расходов на AI, нестабильной работы под нагрузкой и невозможности оперативно расследовать инциденты.
+GA-выпуск всё ещё требует production secrets, staging rollout, load/chaos/security прогонов, backup/restore drill и алертов. Без этих внешних проверок проект нельзя считать полностью готовым к массовому production-трафику.
 
 ---
 
@@ -26,20 +26,20 @@
 
 | № | Блокер | Критичность | Область | Статус |
 |---|--------|-------------|---------|--------|
-| 1 | Нет полноценной авторизации, сессий и изоляции пользовательских данных | Critical | Security/Auth/API | Open |
-| 2 | Основные API-модули возвращают stub/sample-данные вместо работы с БД | Critical | Backend/Data | Open |
-| 3 | Upload pipeline не сохраняет состояние надёжно и не связан с Celery/S3/БД | Critical | Uploads/Storage/Queues | Open |
-| 4 | AI pipeline не замкнут: результаты не персистятся, нет лимитов, учёта стоимости и контроля ошибок | Critical | AI/Workers/Cost Control | Open |
-| 5 | Mini App не подключен к реальному backend-состоянию и не использует production auth flow | Critical | Frontend/Product Flow | Open |
-| 6 | Telegram bot работает в polling-режиме и не реализует production-grade webhook/data flow | Critical | Telegram/Bot | Open |
-| 7 | Нет production-grade удаления данных, privacy lifecycle и audit trail | Critical | Privacy/Compliance/Security | Open |
-| 8 | Billing и usage limits не реализованы, но присутствуют в публичном API | Critical | Billing/Monetization/Limits | Open |
-| 9 | Docker Compose и runtime-конфигурация ориентированы на разработку, а не на production | Critical | Infrastructure/Deployment | Open |
-| 10 | Миграции БД не готовы для безопасной эволюции production-схемы | Critical | Database/Migrations | Open |
-| 11 | Нет rate limiting, backpressure и защиты от перегрузки дорогих операций | Critical | Highload/Resilience/Security | Open |
-| 12 | Нет observability: метрик, трассировки, алертов и эксплуатационных SLO | Critical | Operations/Monitoring | Open |
-| 13 | Недостаточное тестовое покрытие production-сценариев и нестабильная воспроизводимость тестов | Critical | QA/CI/CD | Open |
-| 14 | Нет стратегии отказоустойчивости, graceful shutdown и восстановления после сбоев | Critical | Reliability/Highload | Open |
+| 1 | Нет полноценной авторизации, сессий и изоляции пользовательских данных | Critical | Security/Auth/API | Closed in RC |
+| 2 | Основные API-модули возвращают stub/sample-данные вместо работы с БД | Critical | Backend/Data | Closed in RC |
+| 3 | Upload pipeline не сохраняет состояние надёжно и не связан с Celery/S3/БД | Critical | Uploads/Storage/Queues | Closed in RC |
+| 4 | AI pipeline не замкнут: результаты не персистятся, нет лимитов, учёта стоимости и контроля ошибок | Critical | AI/Workers/Cost Control | Closed in RC; exact provider cost metadata remains follow-up |
+| 5 | Mini App не подключен к реальному backend-состоянию и не использует production auth flow | Critical | Frontend/Product Flow | Closed in RC |
+| 6 | Telegram bot работает в polling-режиме и не реализует production-grade webhook/data flow | Critical | Telegram/Bot | Closed in RC |
+| 7 | Нет production-grade удаления данных, privacy lifecycle и audit trail | Critical | Privacy/Compliance/Security | Closed in RC; external storage deletion drill remains follow-up |
+| 8 | Billing и usage limits не реализованы, но присутствуют в публичном API | Critical | Billing/Monetization/Limits | Mitigated in RC with feature flags |
+| 9 | Docker Compose и runtime-конфигурация ориентированы на разработку, а не на production | Critical | Infrastructure/Deployment | Closed in RC |
+| 10 | Миграции БД не готовы для безопасной эволюции production-схемы | Critical | Database/Migrations | Closed in RC; staging migration drill remains follow-up |
+| 11 | Нет rate limiting, backpressure и защиты от перегрузки дорогих операций | Critical | Highload/Resilience/Security | Partially closed; Redis rate middleware remains follow-up |
+| 12 | Нет observability: метрик, трассировки, алертов и эксплуатационных SLO | Critical | Operations/Monitoring | Partially closed; dashboards/alerts remain follow-up |
+| 13 | Недостаточное тестовое покрытие production-сценариев и нестабильная воспроизводимость тестов | Critical | QA/CI/CD | Closed in RC for unit/integration/build checks |
+| 14 | Нет стратегии отказоустойчивости, graceful shutdown и восстановления после сбоев | Critical | Reliability/Highload | Partially closed; chaos/restore drills remain follow-up |
 
 ---
 

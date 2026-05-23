@@ -31,7 +31,7 @@ def test_validate_telegram_init_data() -> None:
 
 
 def test_access_token_roundtrip() -> None:
-    settings = Settings(jwt_secret_key="unit-test-secret")
+    settings = Settings(jwt_secret_key="unit-test-secret-with-at-least-thirty-two-bytes")
     user_id = uuid4()
     token = create_access_token(user_id, settings)
     assert decode_access_token(token, settings) == user_id

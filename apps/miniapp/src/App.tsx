@@ -1,9 +1,18 @@
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CloudRain, Heart, Loader2, Search, Sparkles, Upload } from "lucide-react";
 
-import { authenticateWithTelegram, deleteUpload, getUploadStatus, hasAccessToken, listWardrobeItems, retryUpload, uploadPhoto } from "./api";
+import {
+  authenticateWithTelegram,
+  deleteUpload,
+  getUploadStatus,
+  hasAccessToken,
+  listOutfits,
+  listWardrobeItems,
+  retryUpload,
+  uploadPhoto,
+} from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
-import { garments, quickScenarios, todayOutfit } from "./data";
+import { quickScenarios } from "./data";
 import { getTelegramWebApp } from "./telegram";
 import type { GarmentCard, OutfitCard, TabKey, UploadStatus } from "./types";
 import "./styles.css";
@@ -18,14 +27,35 @@ const uploadModes: Array<{ key: UploadMode; label: string }> = [
 ];
 
 function TodayScreen({ onNotify }: { onNotify: Notify }) {
-  const [outfit, setOutfit] = useState<OutfitCard>(todayOutfit);
+  const [outfit, setOutfit] = useState<OutfitCard | null>(null);
+  const [wardrobeItems, setWardrobeItems] = useState<GarmentCard[]>([]);
   const [selectedScenario, setSelectedScenario] = useState("Много метро");
 
+  useEffect(() => {
+    if (!hasAccessToken()) {
+      return;
+    }
+    void Promise.all([listOutfits(), listWardrobeItems()])
+      .then(([outfits, items]) => {
+        setOutfit(outfits[0] ?? null);
+        setWardrobeItems(items);
+      })
+      .catch((error: unknown) => {
+        onNotify(error instanceof Error ? error.message : "Не удалось загрузить состояние.", "error");
+      });
+  }, [onNotify]);
+
   function chooseOutfit() {
+    if (!outfit) {
+      return;
+    }
     onNotify("Образ выбран и записан в историю носки.", "success");
   }
 
   function makeWarmer() {
+    if (!outfit) {
+      return;
+    }
     setOutfit({
       ...outfit,
       title: "Теплее: слой + ботинки",
@@ -36,13 +66,7 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
   }
 
   function anotherOutfit() {
-    setOutfit({
-      ...outfit,
-      title: "Альтернатива: smart casual",
-      score: 88,
-      reason: "Меньше денима, больше городского smart casual для вечера.",
-    });
-    onNotify("Показала другой вариант на сегодня.", "info");
+    onNotify("Запрос нового варианта отправляется через backend рекомендации.", "info");
   }
 
   return (
@@ -60,42 +84,46 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       <article className="weather-card">
         <CloudRain size={22} />
         <div>
-          <strong>{outfit.context}</strong>
+          <strong>{outfit?.context ?? "Контекст дня"}</strong>
           <span>Погодный коридор на весь день</span>
         </div>
       </article>
 
-      <article className="hero-outfit">
-        <div className="hero-head">
-          <div>
-            <span className="eyebrow">Лучший вариант</span>
-            <h2>{outfit.title}</h2>
-          </div>
-          <ScoreBadge score={outfit.score} />
-        </div>
-        <div className="mini-grid">
-          {garments.map((item) => (
-            <div className="mini-item" key={item.title}>
-              <div className={item.imageClass} />
+      {outfit ? (
+        <article className="hero-outfit">
+          <div className="hero-head">
+            <div>
+              <span className="eyebrow">Лучший вариант</span>
+              <h2>{outfit.title}</h2>
             </div>
-          ))}
-        </div>
-        <div className="reasoning">
-          <strong>Почему работает</strong>
-          <p>{outfit.reason}</p>
-        </div>
-        <div className="action-row three">
-          <button className="primary" type="button" onClick={chooseOutfit}>
-            Выбрать
-          </button>
-          <button type="button" onClick={makeWarmer}>
-            Теплее
-          </button>
-          <button type="button" onClick={anotherOutfit}>
-            Другой
-          </button>
-        </div>
-      </article>
+            <ScoreBadge score={outfit.score} />
+          </div>
+          <div className="mini-grid">
+            {wardrobeItems.slice(0, 4).map((item) => (
+              <div className="mini-item" key={item.id}>
+                <div className={item.imageClass} />
+              </div>
+            ))}
+          </div>
+          <div className="reasoning">
+            <strong>Почему работает</strong>
+            <p>{outfit.reason}</p>
+          </div>
+          <div className="action-row three">
+            <button className="primary" type="button" onClick={chooseOutfit}>
+              Выбрать
+            </button>
+            <button type="button" onClick={makeWarmer}>
+              Теплее
+            </button>
+            <button type="button" onClick={anotherOutfit}>
+              Другой
+            </button>
+          </div>
+        </article>
+      ) : (
+        <SmartCard icon="layers" title="Нет готового образа" text="Добавьте вещи и соберите рекомендацию" />
+      )}
 
       <SectionHead title="Быстрые сценарии" action={selectedScenario} />
       <div className="scenario-grid">
@@ -126,7 +154,6 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
   const [query, setQuery] = useState("");
   const [remoteGarments, setRemoteGarments] = useState<GarmentCard[]>([]);
   const chips = ["Все", "Верх", "Низ", "Обувь", "Демисезон", "База", "Проверить"];
-  const wardrobeItems = remoteGarments.length > 0 ? remoteGarments : garments;
 
   useEffect(() => {
     if (!hasAccessToken()) {
@@ -139,7 +166,7 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
       });
   }, [onNotify]);
 
-  const visibleGarments = wardrobeItems.filter((item) => {
+  const visibleGarments = remoteGarments.filter((item) => {
     const byChip =
       activeChip === "Все" ||
       item.role.includes(activeChip) ||
@@ -205,17 +232,21 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
         </div>
         <p>Не хватает дождевой обуви и одного спокойного верхнего слоя.</p>
       </article>
-      <div className="garment-grid">
-        {visibleGarments.map((item) => (
-          <InteractiveGarmentTile
-            item={item}
-            key={item.title}
-            selectable
-            selected={selectedItems.has(item.title)}
-            onClick={() => toggleItem(item)}
-          />
-        ))}
-      </div>
+      {visibleGarments.length > 0 ? (
+        <div className="garment-grid">
+          {visibleGarments.map((item) => (
+            <InteractiveGarmentTile
+              item={item}
+              key={item.id}
+              selectable
+              selected={selectedItems.has(item.title)}
+              onClick={() => toggleItem(item)}
+            />
+          ))}
+        </div>
+      ) : (
+        <SmartCard icon="archive" title="Гардероб пуст" text="Загруженные вещи появятся здесь" />
+      )}
       <button
         className="wide-primary"
         type="button"
@@ -415,6 +446,20 @@ function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
   const tabs = ["Луки", "Аутфиты", "Wishlist", "Moodboard"];
   const [activeFavoriteTab, setActiveFavoriteTab] = useState(tabs[0]);
   const [favorite, setFavorite] = useState(true);
+  const [outfits, setOutfits] = useState<OutfitCard[]>([]);
+
+  useEffect(() => {
+    if (!hasAccessToken()) {
+      return;
+    }
+    void listOutfits()
+      .then((items) => setOutfits(items.filter((item) => item.score > 0)))
+      .catch((error: unknown) => {
+        onNotify(error instanceof Error ? error.message : "Не удалось загрузить избранное.", "error");
+      });
+  }, [onNotify]);
+
+  const primaryOutfit = outfits[0] ?? null;
 
   return (
     <section className="screen-stack">
@@ -444,26 +489,25 @@ function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
           </button>
         ))}
       </div>
-      <article className="favorite-look">
-        <div className="look-collage">
-          {garments.map((item) => (
-            <span className={item.imageClass} key={item.title} />
-          ))}
-        </div>
-        <div>
-          <span className="eyebrow">{activeFavoriteTab}</span>
-          <h2>{todayOutfit.title}</h2>
-          <p>{todayOutfit.reason}</p>
-        </div>
-        <div className="action-row two">
-          <button className="primary" type="button" onClick={() => onNotify("Генерирую похожий образ.", "success")}>
-            Похожий
-          </button>
-          <button type="button" onClick={() => onNotify(todayOutfit.reason)}>
-            Почему работает
-          </button>
-        </div>
-      </article>
+      {primaryOutfit ? (
+        <article className="favorite-look">
+          <div>
+            <span className="eyebrow">{activeFavoriteTab}</span>
+            <h2>{primaryOutfit.title}</h2>
+            <p>{primaryOutfit.reason}</p>
+          </div>
+          <div className="action-row two">
+            <button className="primary" type="button" onClick={() => onNotify("Генерирую похожий образ.", "success")}>
+              Похожий
+            </button>
+            <button type="button" onClick={() => onNotify(primaryOutfit.reason)}>
+              Почему работает
+            </button>
+          </div>
+        </article>
+      ) : (
+        <SmartCard icon="archive" title="Избранное пусто" text="Сохранённые луки и аутфиты появятся здесь" />
+      )}
     </section>
   );
 }

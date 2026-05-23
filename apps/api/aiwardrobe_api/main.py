@@ -2,10 +2,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from aiwardrobe_core.config import get_settings
+from aiwardrobe_core.logging import configure_logging
 from aiwardrobe_core.schemas import RootResponse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from aiwardrobe_api.logging_middleware import RequestLoggingMiddleware
 from aiwardrobe_api.routers import (
     ai,
     auth,
@@ -26,6 +28,7 @@ from aiwardrobe_api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    configure_logging(settings.log_level)
     production_errors = settings.production_startup_errors()
     if production_errors:
         raise RuntimeError("Production startup blocked by unsafe configuration: " + ", ".join(production_errors))
@@ -48,6 +51,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestLoggingMiddleware)
     for router in (
         health.router,
         auth.router,
