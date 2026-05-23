@@ -13,6 +13,7 @@
 - Added local MinIO bucket initialization and a non-root application container user for safer full-stack Docker runs.
 - Switched backend Docker images to frozen `uv.lock` installs, removed bind-mounted backend runtime paths, added MinIO readiness gating and bounded worker concurrency.
 - Added structured JSON logging with request ids, latency, status, hashed user identifiers and automatic redaction for tokens, keys, passwords and signed URLs.
+- Added coverage-enabled regression tests for Telegram bot upload registration, worker fail-closed behavior, upload-store state transitions, LLM JSON validation and storage-key sanitization.
 
 ## 0.1.0 - 2026-05-03
 
