@@ -8,6 +8,10 @@ def test_compose_can_start_without_required_env_file() -> None:
     assert "${OPENROUTER_API_KEY:-}" in compose
     assert "${API_HOST_PORT:-8000}:8000" in compose
     assert "http://localhost:8000/health" in compose
+    assert "minio-init" in compose
+    assert "http://localhost:9000/minio/health/live" in compose
+    assert "service_completed_successfully" in compose
+    assert "--concurrency=${WORKER_CONCURRENCY:-2}" in compose
     assert "profiles:\n      - telegram" in compose
 
 
@@ -26,3 +30,10 @@ def test_env_example_exposes_port_overrides_without_secrets() -> None:
         assert key in env_example
     assert "INTERNAL_API_URL=http://api:8000" in env_example
     assert "OPENROUTER_API_KEY=" in env_example
+    assert "ENABLE_POLLING_BOT=false" in env_example
+
+
+def test_runtime_image_uses_non_root_user() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "USER appuser" in dockerfile

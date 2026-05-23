@@ -36,6 +36,26 @@ services:
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-ai-wardrobe-private}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$${S3_ACCESS_KEY_ID}\" \"$${S3_SECRET_ACCESS_KEY}\"; do sleep 2; done;
+      mc mb --ignore-existing local/\"$${S3_BUCKET}\";
+      "
 
   api:
     build: .
@@ -63,7 +83,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-ai-wardrobe-private}
       S3_REGION: ${S3_REGION:-us-east-1}
-    command: uvicorn aiwardrobe_api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
+    command: /app/.venv/bin/uvicorn aiwardrobe_api.main:create_app --factory --host 0.0.0.0 --port 8000
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     healthcheck:
@@ -71,13 +91,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - .:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   worker:
     build: .
@@ -92,9 +112,7 @@ services:
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
       OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
-    command: celery -A aiwardrobe_worker.celery_app:celery_app worker --loglevel=INFO
-    volumes:
-      - .:/app
+    command: /app/.venv/bin/celery -A aiwardrobe_worker.celery_app:celery_app worker --loglevel=INFO --concurrency=${WORKER_CONCURRENCY:-2}
     depends_on:
       api:
         condition: service_healthy
@@ -111,9 +129,7 @@ services:
       MINIAPP_PUBLIC_URL: ${MINIAPP_PUBLIC_URL:-http://localhost:5173}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:8000}
-    command: python -m aiwardrobe_bot.main
-    volumes:
-      - .:/app
+    command: /app/.venv/bin/python -m aiwardrobe_bot.main
     depends_on:
       - api
       - redis

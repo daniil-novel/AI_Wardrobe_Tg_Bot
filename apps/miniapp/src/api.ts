@@ -1,4 +1,4 @@
-import type { GarmentCard, UploadStatus } from "./types";
+import type { GarmentCard, OutfitCard, UploadStatus } from "./types";
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: {
@@ -35,6 +35,16 @@ type ApiGarmentItem = {
   status: string;
   availability_status: string;
   designer_attributes: Record<string, unknown>;
+};
+
+type ApiOutfit = {
+  id: string;
+  title: string;
+  score: string | number;
+  comfort_score?: string | number | null;
+  explanation?: string | null;
+  designer_reasoning: Record<string, unknown>;
+  is_favorite: boolean;
 };
 
 const accessTokenKey = "aiw_access_token";
@@ -133,12 +143,27 @@ export async function listWardrobeItems(): Promise<GarmentCard[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/items`);
   const items = await readJson<ApiGarmentItem[]>(response);
   return items.map((item) => ({
+    id: item.id,
     title: item.title,
-    imageClass: "swatch neutral",
+    imageClass: "swatch-denim",
     season: item.season.join(" · ") || "all season",
     role: item.category,
     temperature: item.availability_status,
     confidence: Number(item.confidence),
     provenance: "user_processed",
+  }));
+}
+
+export async function listOutfits(): Promise<OutfitCard[]> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/outfits`);
+  const outfits = await readJson<ApiOutfit[]>(response);
+  return outfits.map((outfit) => ({
+    id: outfit.id,
+    title: outfit.title,
+    context: String(outfit.designer_reasoning.source ?? "Гардероб"),
+    score: Number(outfit.score),
+    comfort: Number(outfit.comfort_score ?? outfit.score),
+    items: [],
+    reason: outfit.explanation ?? "",
   }));
 }

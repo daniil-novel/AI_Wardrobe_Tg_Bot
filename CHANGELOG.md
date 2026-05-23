@@ -8,6 +8,10 @@
 - Added Mini App Telegram `initData` authentication, bearer-token API client, refresh retry and authenticated wardrobe/upload calls.
 - Added production compose override, readiness/liveness/metrics endpoints, webhook-mode bot startup and release documentation for secrets, migrations, private backing services and readiness checks.
 - Added production hardening and auth-boundary tests; switched local verification to Python 3.12 through `uv run --extra dev`.
+- Removed remaining runtime demo fallbacks from the Mini App wardrobe/outfit screens; frontend state now comes from authenticated backend API calls.
+- Replaced worker placeholder research/outfit tasks with OpenRouter-backed persistence into `garment_items`, `outfit_cards` and `ai_requests`.
+- Added local MinIO bucket initialization and a non-root application container user for safer full-stack Docker runs.
+- Switched backend Docker images to frozen `uv.lock` installs, removed bind-mounted backend runtime paths, added MinIO readiness gating and bounded worker concurrency.
 
 ## 0.1.0 - 2026-05-03
 

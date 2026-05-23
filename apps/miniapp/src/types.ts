@@ -9,6 +9,7 @@ export type NavItem = {
 };
 
 export type GarmentCard = {
+  id: string;
   title: string;
   imageClass: string;
   season: string;
@@ -19,6 +20,7 @@ export type GarmentCard = {
 };
 
 export type OutfitCard = {
+  id: string;
   title: string;
   context: string;
   score: number;
