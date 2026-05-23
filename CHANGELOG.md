@@ -12,6 +12,7 @@
 - Replaced worker placeholder research/outfit tasks with OpenRouter-backed persistence into `garment_items`, `outfit_cards` and `ai_requests`.
 - Added local MinIO bucket initialization and a non-root application container user for safer full-stack Docker runs.
 - Switched backend Docker images to frozen `uv.lock` installs, removed bind-mounted backend runtime paths, added MinIO readiness gating and bounded worker concurrency.
+- Added structured JSON logging with request ids, latency, status, hashed user identifiers and automatic redaction for tokens, keys, passwords and signed URLs.
 
 ## 0.1.0 - 2026-05-03
 

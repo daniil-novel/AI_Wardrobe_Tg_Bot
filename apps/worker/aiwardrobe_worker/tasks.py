@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -8,6 +9,7 @@ from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.db import get_session_factory
 from aiwardrobe_core.enums import GarmentStatus, ProcessingStatus
 from aiwardrobe_core.llm_gateway import LlmGateway
+from aiwardrobe_core.logging import hash_identifier
 from aiwardrobe_core.models import AiRequest, GarmentItem, OutfitCard, OutfitItem, PrivacyReceipt, Upload
 from celery.exceptions import Ignore
 from celery.utils.log import get_task_logger
@@ -103,7 +105,20 @@ def analyze_upload(self: Any, upload_id: str, signed_image_url: str) -> dict[str
                 raise
 
     logger.info("Analyzing upload %s", upload_id)
-    return asyncio.run(run())
+    started = time.perf_counter()
+    try:
+        result = asyncio.run(run())
+    except Exception:
+        logger.exception("AI upload analysis failed", extra={"upload_id_hash": hash_identifier(upload_id)})
+        raise
+    logger.info(
+        "AI upload analysis completed",
+        extra={
+            "upload_id_hash": hash_identifier(upload_id),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        },
+    )
+    return result
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
@@ -150,7 +165,13 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
             return {"item_id": item_id, "status": ProcessingStatus.COMPLETED.value, "summary": summary}
 
     logger.info("Research queued for item %s", item_id)
-    return asyncio.run(run())
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Item research completed",
+        extra={"item_id_hash": hash_identifier(item_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
+    )
+    return result
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
@@ -222,7 +243,13 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
             return {"user_id": user_id, "status": ProcessingStatus.COMPLETED.value, "outfit_id": str(outfit.id)}
 
     logger.info("Generating outfit for user %s", user_id)
-    return asyncio.run(run())
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Outfit generation completed",
+        extra={"user_id_hash": hash_identifier(user_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
+    )
+    return result
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)

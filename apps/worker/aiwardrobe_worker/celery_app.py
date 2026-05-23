@@ -1,7 +1,9 @@
 from aiwardrobe_core.config import get_settings
+from aiwardrobe_core.logging import configure_logging
 from celery import Celery
 
 settings = get_settings()
+configure_logging(settings.log_level)
 
 celery_app = Celery(
     "aiwardrobe_worker",
