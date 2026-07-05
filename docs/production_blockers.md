@@ -1,5 +1,20 @@
 # Критические блокеры перед выпуском в production
 
+## 0.1. Release update — 2026-07-05 (v0.3.0)
+
+Проект развёрнут в production на VPS и доступен в Telegram (@wwardrobeai_bot, Mini App за TLS).
+Закрыты найденные при выпуске release-blocking дефекты: webhook-режим бота не стартовал
+(вложенный event loop), первая авторизация нового пользователя падала на NULL `user_id`,
+Telegram-фото никогда не переносились в S3 (idempotency-skip), Celery-задачи маршрутизировались
+в очереди без консьюмера, AI-провайдер не мог скачать presigned URL приватного MinIO
+(теперь inline data URL), retry-endpoint'ы не ставили задачи, `ports:`/`profiles:` production
+override не перекрывали базовый compose. Добавлен Redis rate limiting. Полный e2e прогнан
+на боевом стенде: auth → refresh → upload → S3 → Celery → OpenRouter → item в гардеробе,
+изоляция пользователей, 401/429, классификация ошибок Telegram file API.
+
+Остаются follow-up'ы: load/chaos-прогоны, дашборды и алерты, автоматизация бэкапов,
+PROXY protocol для точного client IP за общим haproxy.
+
 ## 0. Remediation update — 2026-05-21
 
 Ветка `harden-production-release` закрывает release-blocking поведение ранней версии для RC:

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 - 2026-07-05
+
+Production release: deployed to a VPS behind TLS and connected to Telegram (@wwardrobeai_bot).
+
+- Fixed production webhook bot startup crash: replaced nested `web.run_app` with `AppRunner`/`TCPSite` and normalized the webhook URL join.
+- Fixed first-time Telegram auth: new users are flushed before session insert, so `/auth/telegram` no longer fails with a NULL `user_id`.
+- Implemented the Telegram photo pipeline end to end: `transfer_telegram_upload` downloads the Bot API file, validates magic bytes and size, stores the object in S3, chains AI analysis and classifies unrecoverable Telegram file errors without burning retries.
+- Fixed transfer idempotency: queued uploads are no longer skipped as "already transferred".
+- Workers now consume all routed Celery queues (`-Q celery,ai,research,recommendations,notifications`); previously AI tasks were routed to queues nobody consumed.
+- AI analysis sends private images to OpenRouter as inline base64 data URLs; presigned links into the private MinIO network were unreachable for providers and leaked internal endpoints.
+- Made garment analysis parsing resilient: explicit JSON schema in the system prompt, markdown fence trimming, scalar season/style coercion and percent-scale confidence normalization.
+- Upload and AI retry endpoints now re-enqueue real Celery tasks instead of only rewriting statuses.
+- `send_notification` actually delivers messages through the Bot API.
+- Added Redis-backed fixed-window rate limiting for auth/upload/AI endpoint groups with fail-open behavior, per-user/IP scoping and `Retry-After` headers.
+- Fixed production compose merge semantics with `!reset`/`!override`: database, broker and object-storage host ports are actually removed, the API/bot bind to loopback ports for the reverse proxy and the bot service no longer hides behind the `telegram` profile.
+- Mini App shell now loads `telegram-web-app.js`, without which `initData` auth never started inside Telegram.
+- Added shared image validation in `aiwardrobe_core.image_validation`, regression tests for the new pipeline, rate limiter, auth flush and LLM parsing (70 tests, coverage gate 67%).
+
 ## 0.2.0-rc.1 - 2026-05-21
 
 - Hardened Telegram auth with persistent user upsert, refresh-token rotation, logout revocation and production startup secret validation.
