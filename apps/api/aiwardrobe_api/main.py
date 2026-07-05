@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from aiwardrobe_api.logging_middleware import RequestLoggingMiddleware
+from aiwardrobe_api.rate_limit import RateLimitMiddleware
 from aiwardrobe_api.routers import (
     ai,
     auth,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RateLimitMiddleware, settings=settings)
     app.add_middleware(RequestLoggingMiddleware)
     for router in (
         health.router,

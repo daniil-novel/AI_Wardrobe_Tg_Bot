@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from aiwardrobe_core.auth_service import upsert_telegram_user
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.enums import ProcessingStatus, ProvenanceLabel, UploadSource
+from aiwardrobe_core.image_validation import ImageValidationError, validate_image_content
 from aiwardrobe_core.models import ImageAsset, Upload
 from aiwardrobe_core.schemas import (
     TelegramUploadRequest,
@@ -48,15 +49,11 @@ def status_from_upload(upload: Upload) -> UploadStatus:
 def validate_upload_request(content_type: str, content: bytes, max_bytes: int, allowed_types: set[str]) -> None:
     if content_type not in allowed_types:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image content type.")
-    if len(content) > max_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image is too large.")
-    magic_ok = (
-        content.startswith(b"\xff\xd8\xff")
-        or content.startswith(b"\x89PNG\r\n\x1a\n")
-        or (content.startswith(b"RIFF") and content[8:12] == b"WEBP")
-    )
-    if not magic_ok:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is not a valid image.")
+    try:
+        validate_image_content(content, max_bytes, allowed_types)
+    except ImageValidationError as exc:
+        code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if exc.code == "file_too_large" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=exc.message) from exc
 
 
 def ensure_user_storage_key(user_id: UUID, storage_key: str) -> None:
@@ -114,7 +111,7 @@ async def complete_upload(
     await session.flush()
     upload.original_image_id = image.id
     upload.status = ProcessingStatus.UPLOADED.value
-    await enqueue_upload_with_key(upload, payload.storage_key, storage)
+    await enqueue_upload_with_key(upload, payload.storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -150,7 +147,7 @@ async def upload_file(
     session.add_all([image, upload])
     await session.flush()
     upload.original_image_id = image.id
-    await enqueue_upload_with_key(upload, storage_key, storage)
+    await enqueue_upload_with_key(upload, storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -180,10 +177,10 @@ async def from_telegram(
         upload_type=payload.upload_type,
         telegram_file_id=payload.telegram_file_id,
         status=ProcessingStatus.CREATED.value,
-        error_code="telegram_transfer_pending",
-        error_message="Telegram file must be transferred to object storage before AI processing.",
     )
     session.add(upload)
+    await session.flush()
+    await enqueue_telegram_transfer(upload)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -198,11 +195,20 @@ async def get_upload(upload_id: UUID, user_id: UUID = CurrentUser, session: Asyn
 async def retry_upload(upload_id: UUID, user_id: UUID = CurrentUser, session: AsyncSession = DbSession) -> UploadStatus:
     upload = await load_upload(session, user_id, upload_id)
     if upload.original_image_id is None:
+        if upload.telegram_file_id:
+            upload.error_code = None
+            upload.error_message = None
+            await enqueue_telegram_transfer(upload)
+            await session.commit()
+            await session.refresh(upload)
+            return status_from_upload(upload)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload has no stored image to retry.")
-    upload.status = ProcessingStatus.QUEUED.value
+    image = await session.get(ImageAsset, upload.original_image_id)
+    if image is None or image.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload image is no longer available.")
     upload.error_code = None
     upload.error_message = None
-    upload.task_id = str(uuid4())
+    await enqueue_upload_with_key(upload, image.storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -219,12 +225,25 @@ async def delete_upload(
     return {"id": upload_id, "status": "deleted"}
 
 
-async def enqueue_upload_with_key(upload: Upload, storage_key: str, storage: ObjectStorage) -> None:
-    image_url = await storage.create_presigned_get_url(storage_key)
+async def enqueue_upload_with_key(upload: Upload, storage_key: str) -> None:
     try:
         from aiwardrobe_worker.tasks import analyze_upload
 
-        task = analyze_upload.delay(str(upload.id), image_url)
+        task = analyze_upload.delay(str(upload.id), storage_key)
+    except Exception as exc:
+        upload.status = ProcessingStatus.FAILED.value
+        upload.error_code = "queue_unavailable"
+        upload.error_message = exc.__class__.__name__
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue is unavailable.") from exc
+    upload.task_id = str(task.id)
+    upload.status = ProcessingStatus.QUEUED.value
+
+
+async def enqueue_telegram_transfer(upload: Upload) -> None:
+    try:
+        from aiwardrobe_worker.tasks import transfer_telegram_upload
+
+        task = transfer_telegram_upload.delay(str(upload.id))
     except Exception as exc:
         upload.status = ProcessingStatus.FAILED.value
         upload.error_code = "queue_unavailable"

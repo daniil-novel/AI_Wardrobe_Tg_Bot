@@ -18,6 +18,7 @@ celery_app.conf.update(
     task_default_retry_delay=30,
     task_routes={
         "aiwardrobe_worker.tasks.analyze_upload": {"queue": "ai"},
+        "aiwardrobe_worker.tasks.transfer_telegram_upload": {"queue": "ai"},
         "aiwardrobe_worker.tasks.research_item": {"queue": "research"},
         "aiwardrobe_worker.tasks.generate_outfit": {"queue": "recommendations"},
         "aiwardrobe_worker.tasks.send_notification": {"queue": "notifications"},

@@ -6,7 +6,6 @@ from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.enums import ProcessingStatus
 from aiwardrobe_core.models import AiRequest, ImageAsset, Upload, User
 from aiwardrobe_core.schemas import AiTaskRequest, AiTaskStatus
-from aiwardrobe_core.storage import ObjectStorage
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,11 +33,10 @@ async def analyze_image(
 
     await enforce_ai_quota(session, user_id)
     image = await load_image(session, user_id, upload.original_image_id)
-    image_url = await ObjectStorage(settings).create_presigned_get_url(image.storage_key)
     try:
         from aiwardrobe_worker.tasks import analyze_upload
 
-        task = analyze_upload.delay(str(upload.id), image_url)
+        task = analyze_upload.delay(str(upload.id), image.storage_key)
     except Exception as exc:
         upload.status = ProcessingStatus.FAILED.value
         upload.error_code = "queue_unavailable"
@@ -77,11 +75,22 @@ async def retry_task(task_id: str, user_id: UUID = CurrentUser, session: AsyncSe
     upload = result.scalar_one_or_none()
     if upload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    if upload.original_image_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload has no stored image to retry.")
+    await enforce_ai_quota(session, user_id)
+    image = await load_image(session, user_id, upload.original_image_id)
+    try:
+        from aiwardrobe_worker.tasks import analyze_upload
+
+        task = analyze_upload.delay(str(upload.id), image.storage_key)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue is unavailable.") from exc
     upload.status = ProcessingStatus.QUEUED.value
     upload.error_code = None
     upload.error_message = None
+    upload.task_id = str(task.id)
     await session.commit()
-    return AiTaskStatus(task_id=task_id, status=upload.status)
+    return AiTaskStatus(task_id=upload.task_id, status=upload.status)
 
 
 @router.get("/usage")

@@ -128,14 +128,22 @@ async def main() -> None:
         if not settings.telegram_webhook_secret:
             raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required for production webhook mode.")
         webhook_path = "/telegram/webhook"
-        webhook_url = f"{settings.public_api_url.rstrip()}{webhook_path}"
-        await bot.set_webhook(webhook_url, secret_token=settings.telegram_webhook_secret)
+        webhook_url = f"{settings.public_api_url.rstrip('/')}{webhook_path}"
+        await bot.set_webhook(webhook_url, secret_token=settings.telegram_webhook_secret, drop_pending_updates=True)
         app = web.Application()
         SimpleRequestHandler(dispatcher=dispatcher, bot=bot, secret_token=settings.telegram_webhook_secret).register(
             app, path=webhook_path
         )
         setup_application(app, dispatcher, bot=bot)
-        web.run_app(app, host=settings.api_host, port=settings.api_port)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host=settings.api_host, port=settings.api_port)
+        await site.start()
+        logging.info("Bot webhook server listening on %s:%s%s", settings.api_host, settings.api_port, webhook_path)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await runner.cleanup()
         return
     await dispatcher.start_polling(bot)
 

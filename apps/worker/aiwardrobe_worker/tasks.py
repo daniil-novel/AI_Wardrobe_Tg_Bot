@@ -5,12 +5,15 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import httpx
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.db import get_session_factory
-from aiwardrobe_core.enums import GarmentStatus, ProcessingStatus
+from aiwardrobe_core.enums import GarmentStatus, ProcessingStatus, ProvenanceLabel
+from aiwardrobe_core.image_validation import ImageValidationError, validate_image_content
 from aiwardrobe_core.llm_gateway import LlmGateway
 from aiwardrobe_core.logging import hash_identifier
-from aiwardrobe_core.models import AiRequest, GarmentItem, OutfitCard, OutfitItem, PrivacyReceipt, Upload
+from aiwardrobe_core.models import AiRequest, GarmentItem, ImageAsset, OutfitCard, OutfitItem, PrivacyReceipt, Upload
+from aiwardrobe_core.storage import ObjectStorage, build_storage_key
 from celery.exceptions import Ignore
 from celery.utils.log import get_task_logger
 from sqlalchemy import select
@@ -21,7 +24,7 @@ logger = get_task_logger(__name__)
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def analyze_upload(self: Any, upload_id: str, signed_image_url: str) -> dict[str, Any]:
+def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any]:
     settings = get_settings()
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is required; mock AI mode is disabled.")
@@ -37,6 +40,10 @@ def analyze_upload(self: Any, upload_id: str, signed_image_url: str) -> dict[str
             await session.commit()
 
             try:
+                if storage_key.startswith(("http://", "https://")):
+                    signed_image_url = storage_key
+                else:
+                    signed_image_url = await ObjectStorage(settings).create_presigned_get_url(storage_key)
                 analysis = await LlmGateway(settings).analyze_image(
                     signed_image_url,
                     "Analyze the clothing image and return image_type, item fields, season, color, "
@@ -113,6 +120,94 @@ def analyze_upload(self: Any, upload_id: str, signed_image_url: str) -> dict[str
         raise
     logger.info(
         "AI upload analysis completed",
+        extra={
+            "upload_id_hash": hash_identifier(upload_id),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        },
+    )
+    return result
+
+
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def transfer_telegram_upload(self: Any, upload_id: str) -> dict[str, Any]:
+    """Download a Telegram photo through the Bot API and move it into private object storage."""
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is required for Telegram file transfer.")
+
+    async def fail_upload(upload: Upload, code: str, message: str, session: Any) -> None:
+        upload.status = ProcessingStatus.FAILED.value
+        upload.error_code = code
+        upload.error_message = message[:1000]
+        await session.commit()
+
+    async def run() -> dict[str, Any]:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(select(Upload).where(Upload.id == UUID(upload_id)))
+            upload = result.scalar_one_or_none()
+            if upload is None:
+                raise ValueError("Upload not found.")
+            if upload.original_image_id is not None or upload.status in {
+                ProcessingStatus.QUEUED.value,
+                ProcessingStatus.PROCESSING.value,
+                ProcessingStatus.COMPLETED.value,
+            }:
+                return {"upload_id": upload_id, "status": upload.status, "skipped": "already_transferred"}
+            if not upload.telegram_file_id:
+                await fail_upload(upload, "missing_telegram_file", "Upload has no Telegram file id.", session)
+                raise Ignore()
+
+            api_base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                file_info = await client.get(f"{api_base}/getFile", params={"file_id": upload.telegram_file_id})
+                file_info.raise_for_status()
+                file_path = file_info.json().get("result", {}).get("file_path")
+                if not file_path:
+                    await fail_upload(
+                        upload, "telegram_file_unavailable", "Telegram did not return file path.", session
+                    )
+                    raise Ignore()
+                file_response = await client.get(
+                    f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
+                )
+                file_response.raise_for_status()
+                content = file_response.content
+
+            try:
+                content_type = validate_image_content(
+                    content, settings.max_upload_bytes, settings.allowed_upload_content_type_set
+                )
+            except ImageValidationError as exc:
+                await fail_upload(upload, exc.code, exc.message, session)
+                raise Ignore() from exc
+
+            storage_key = build_storage_key(upload.user_id, "originals", file_path.split("/")[-1])
+            await ObjectStorage(settings).put_bytes(storage_key, content, content_type)
+
+            image = ImageAsset(
+                user_id=upload.user_id,
+                source_type="telegram",
+                storage_key=storage_key,
+                provenance_label=ProvenanceLabel.USER_PROCESSED.value,
+            )
+            session.add(image)
+            await session.flush()
+            upload.original_image_id = image.id
+            upload.status = ProcessingStatus.UPLOADED.value
+            upload.error_code = None
+            upload.error_message = None
+            task = analyze_upload.delay(upload_id, storage_key)
+            upload.task_id = str(task.id)
+            upload.status = ProcessingStatus.QUEUED.value
+            await session.commit()
+            return {"upload_id": upload_id, "status": upload.status, "storage_key_set": True}
+
+    logger.info("Transferring Telegram upload %s", upload_id)
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Telegram upload transfer finished",
         extra={
             "upload_id_hash": hash_identifier(upload_id),
             "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -257,5 +352,15 @@ def send_notification(self: Any, telegram_id: int, text: str) -> dict[str, Any]:
     settings = get_settings()
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required for notifications.")
-    logger.info("Notification queued for Telegram user %s", telegram_id)
-    return {"telegram_id": telegram_id, "status": "pending_bot_delivery", "text": text}
+
+    async def run() -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                json={"chat_id": telegram_id, "text": text},
+            )
+            response.raise_for_status()
+        return {"telegram_id": telegram_id, "status": "delivered"}
+
+    logger.info("Sending notification to Telegram user hash %s", hash_identifier(str(telegram_id)))
+    return asyncio.run(run())

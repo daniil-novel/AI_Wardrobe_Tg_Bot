@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     enable_marketplace_search: bool = False
     enable_polling_bot: bool = False
 
+    rate_limit_enabled: bool = True
+    rate_limit_auth_per_minute: int = 30
+    rate_limit_uploads_per_minute: int = 60
+    rate_limit_ai_per_minute: int = 30
+
     free_items_limit: int = 20
     free_ai_analyses_per_month: int = 5
     premium_items_limit: int = 500
