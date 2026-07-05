@@ -45,6 +45,16 @@ async def wardrobe_gaps(user_id: UUID = CurrentUser, session: AsyncSession = DbS
         }
         for card in result.scalars()
     ]
+    if not cards:
+        # No curated missing-item cards yet: derive gaps from the live wardrobe
+        # so the tool stays consistent with the wardrobe health widget.
+        from aiwardrobe_api.routers.style import calculate_wardrobe_health
+
+        health = await calculate_wardrobe_health(session, user_id)
+        cards = [
+            {"id": f"health-{index}", "title": role, "reason": None, "priority": "high", "category": None}
+            for index, role in enumerate(health.missing_roles)
+        ]
     return {"missing_items": cards}
 
 
