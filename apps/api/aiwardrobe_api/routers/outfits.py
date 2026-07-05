@@ -174,13 +174,14 @@ async def create_outfit_recommendations(
         return []
 
     event_note = f" под сценарий «{payload.event_type}»" if payload.event_type else ""
+    noun = "вещи" if len(items) % 10 == 1 and len(items) % 100 != 11 else "вещей"
     outfit = OutfitCard(
         user_id=user_id,
         title="Образ из вашего гардероба",
         generation_context={"request_id": str(generation.id), "source": "wardrobe_rules", "prompt": payload.prompt},
         weather_snapshot=payload.weather,
         designer_reasoning={"source": "гардероб", "item_count": len(items)},
-        explanation=f"Собрано из {len(items)} вещей вашего гардероба{event_note}.",
+        explanation=f"Собрано из {len(items)} {noun} вашего гардероба{event_note}.",
         score=Decimal("75"),
         comfort_score=Decimal("75"),
     )
