@@ -2,11 +2,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from aiwardrobe_core.config import get_settings
-from aiwardrobe_core.enums import GarmentStatus
+from aiwardrobe_core.enums import GarmentStatus, ProvenanceLabel
+from aiwardrobe_core.image_processing import ImageProcessingError, create_white_background_product_image
 from aiwardrobe_core.image_validation import detect_image_content_type
 from aiwardrobe_core.models import GarmentItem, ImageAsset
 from aiwardrobe_core.schemas import GarmentItemRead, GarmentItemUpdate
-from aiwardrobe_core.storage import ObjectStorage
+from aiwardrobe_core.storage import ObjectStorage, build_storage_key
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,11 +50,10 @@ async def get_item(item_id: UUID, user_id: UUID = CurrentUser, session: AsyncSes
 @router.get("/{item_id}/image")
 async def get_item_image(item_id: UUID, user_id: UUID = CurrentUser, session: AsyncSession = DbSession) -> Response:
     item = await load_item(session, user_id, item_id)
-    if item.original_image_id is None:
+    image_id = item.processed_image_id or item.thumbnail_image_id or item.original_image_id
+    if image_id is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item has no stored image.")
-    result = await session.execute(
-        select(ImageAsset).where(ImageAsset.id == item.original_image_id, ImageAsset.user_id == user_id)
-    )
+    result = await session.execute(select(ImageAsset).where(ImageAsset.id == image_id, ImageAsset.user_id == user_id))
     image = result.scalar_one_or_none()
     if image is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
@@ -124,8 +124,40 @@ async def rerun_research(
 async def generate_product_image(
     item_id: UUID, user_id: UUID = CurrentUser, session: AsyncSession = DbSession
 ) -> dict[str, UUID | str]:
-    await load_item(session, user_id, item_id)
-    return {"id": item_id, "status": "queued"}
+    item = await load_item(session, user_id, item_id)
+    if item.original_image_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Item has no original image.")
+    result = await session.execute(
+        select(ImageAsset).where(ImageAsset.id == item.original_image_id, ImageAsset.user_id == user_id)
+    )
+    original = result.scalar_one_or_none()
+    if original is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original image not found.")
+    storage = ObjectStorage(get_settings())
+    try:
+        original_content = await storage.get_bytes(original.storage_key)
+        processed_content = create_white_background_product_image(original_content)
+        processed_key = build_storage_key(user_id, "processed", f"{item.id}.jpg")
+        await storage.put_bytes(processed_key, processed_content, "image/jpeg")
+    except ImageProcessingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Image cannot be processed."
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Image storage is unavailable.") from exc
+
+    processed = ImageAsset(
+        user_id=user_id,
+        source_type="processed",
+        storage_key=processed_key,
+        provenance_label=ProvenanceLabel.USER_PROCESSED.value,
+        generated_prompt="Normalized item photo on a white product background.",
+    )
+    session.add(processed)
+    await session.flush()
+    item.processed_image_id = processed.id
+    await session.commit()
+    return {"id": item_id, "status": "processed", "image_id": processed.id}
 
 
 @router.post("/{item_id}/find-product-photo")

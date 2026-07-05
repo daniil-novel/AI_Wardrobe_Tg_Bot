@@ -214,7 +214,9 @@ button:disabled {
 }
 
 .scenario-chat,
-.designer-result {
+.designer-result,
+.designer-chat-panel,
+.tomorrow-card {
   display: grid;
   gap: 12px;
   border: 1px solid var(--border-soft);
@@ -238,7 +240,8 @@ button:disabled {
   font-size: 12px;
 }
 
-.scenario-chat textarea {
+.scenario-chat textarea,
+.designer-chat-panel textarea {
   width: 100%;
   min-height: 86px;
   resize: vertical;
@@ -250,6 +253,18 @@ button:disabled {
   font: inherit;
   line-height: 20px;
   outline: none;
+}
+
+.tomorrow-card strong {
+  font-size: 17px;
+  line-height: 22px;
+}
+
+.tomorrow-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .preference-row {
@@ -494,6 +509,20 @@ button:disabled {
   padding: 16px;
 }
 
+.health-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health-list li {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .garment-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -527,12 +556,24 @@ button:disabled {
   overflow: hidden;
 }
 
-.garment-image::after {
+.garment-image:not(.product-photo)::after {
   position: absolute;
   inset: auto 0 0;
   height: 52%;
   background: linear-gradient(0deg, rgba(0, 0, 0, 0.26), transparent);
   content: "";
+}
+
+.garment-image.product-photo {
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.garment-image.product-photo img {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  object-fit: contain;
 }
 
 .garment-image span {
@@ -583,6 +624,14 @@ button:disabled {
   font-weight: 750;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.item-model {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 15px;
 }
 
 .garment-meta p {
@@ -708,6 +757,34 @@ button:disabled {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 18px;
+}
+
+.chat-log {
+  display: grid;
+  gap: 8px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.chat-log p {
+  width: fit-content;
+  max-width: 92%;
+  margin: 0;
+  border-radius: 16px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.chat-log .assistant {
+  background: var(--bg-surface-soft);
+  color: var(--text-primary);
+}
+
+.chat-log .user {
+  justify-self: end;
+  background: var(--accent-primary);
+  color: var(--bg-surface);
 }
 
 .dna-bars {

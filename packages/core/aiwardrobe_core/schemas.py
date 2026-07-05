@@ -142,6 +142,20 @@ class OutfitRequest(BaseModel):
     variants_count: int = Field(default=3, ge=1, le=5)
 
 
+class DesignerChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    scenario: str | None = None
+    preferences: str | None = None
+    weather_context: str | None = None
+
+
+class DesignerChatResponse(BaseModel):
+    reply: str
+    outfit_id: UUID | None = None
+    outfit_title: str | None = None
+    item_count: int = 0
+
+
 class OutfitRead(BaseModel):
     id: UUID
     title: str

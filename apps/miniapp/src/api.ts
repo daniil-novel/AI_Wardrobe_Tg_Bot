@@ -1,4 +1,13 @@
-import type { DesignerResult, DesignerToolKey, GarmentCard, OutfitCard, UploadStatus, WeatherSummary } from "./types";
+import type {
+  DesignerChatReply,
+  DesignerResult,
+  DesignerToolKey,
+  GarmentCard,
+  OutfitCard,
+  UploadStatus,
+  WardrobeHealth,
+  WeatherSummary,
+} from "./types";
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: {
@@ -35,6 +44,12 @@ type ApiGarmentItem = {
   status: string;
   availability_status: string;
   designer_attributes: Record<string, unknown>;
+};
+
+type DesignerAttributes = {
+  brand?: unknown;
+  model_name?: unknown;
+  visual_identifiers?: unknown;
 };
 
 type ApiOutfit = {
@@ -238,24 +253,81 @@ function imageClassFor(item: ApiGarmentItem): string {
   return "swatch-denim";
 }
 
+function textAttribute(attributes: DesignerAttributes, key: "brand" | "model_name"): string | undefined {
+  const value = attributes[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function listAttribute(attributes: DesignerAttributes, key: "visual_identifiers"): string[] {
+  const value = attributes[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function displayTitle(item: ApiGarmentItem): string {
+  const attributes = item.designer_attributes as DesignerAttributes;
+  const title = localizeTitle(item.title);
+  const brand = textAttribute(attributes, "brand");
+  const modelName = textAttribute(attributes, "model_name");
+  if (brand && modelName && !title.toLowerCase().includes(brand.toLowerCase())) {
+    return `${item.category === "shoes" ? "Кроссовки" : title} ${brand} ${modelName}`;
+  }
+  if (brand && !title.toLowerCase().includes(brand.toLowerCase())) {
+    return `${title} ${brand}`;
+  }
+  return title;
+}
+
 export async function listWardrobeItems(): Promise<GarmentCard[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/items`);
   const items = await readJson<ApiGarmentItem[]>(response);
-  return items.map((item) => ({
-    id: item.id,
-    title: localizeTitle(item.title),
-    imageClass: imageClassFor(item),
-    season: item.season.map((season) => localizeToken(String(season), seasonLabels)).join(" · ") || "сезон уточнить",
-    role: localizeToken(item.category, categoryLabels),
-    temperature: localizeToken(item.availability_status, availabilityLabels),
-    color: item.main_color ?? undefined,
-    searchText: [item.title, localizeTitle(item.title), item.category, item.main_color, item.availability_status]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase(),
-    confidence: Number(item.confidence),
-    provenance: "user_processed",
-  }));
+  return items.map((item) => {
+    const attributes = item.designer_attributes as DesignerAttributes;
+    const brand = textAttribute(attributes, "brand");
+    const modelName = textAttribute(attributes, "model_name");
+    const title = displayTitle(item);
+    return {
+      id: item.id,
+      title,
+      imageClass: imageClassFor(item),
+      season: item.season.map((season) => localizeToken(String(season), seasonLabels)).join(" · ") || "сезон уточнить",
+      role: localizeToken(item.category, categoryLabels),
+      temperature: localizeToken(item.availability_status, availabilityLabels),
+      color: item.main_color ?? undefined,
+      brand,
+      modelName,
+      visualIdentifiers: listAttribute(attributes, "visual_identifiers"),
+      searchText: [item.title, title, brand, modelName, item.category, item.main_color, item.availability_status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+      confidence: Number(item.confidence),
+      provenance: "user_processed" as const,
+    };
+  });
+}
+
+export async function getWardrobeItemImageObjectUrl(itemId: string): Promise<string | undefined> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/items/${itemId}/image`);
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    return undefined;
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+export async function getWardrobeHealth(): Promise<WardrobeHealth> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/wardrobe/health`);
+  const payload = await readJson<WardrobeHealth>(response);
+  return {
+    ...payload,
+    score: Number(payload.score),
+    missing_roles: payload.missing_roles ?? [],
+    duplicate_groups: payload.duplicate_groups ?? [],
+    orphan_items: payload.orphan_items ?? [],
+  };
 }
 
 export async function listOutfits(): Promise<OutfitCard[]> {
@@ -358,4 +430,18 @@ export async function runDesignerTool(tool: DesignerToolKey): Promise<DesignerRe
     },
   };
   return localCopy[tool];
+}
+
+export async function sendDesignerChat(payload: {
+  message: string;
+  scenario?: string;
+  preferences?: string;
+  weather_context?: string;
+}): Promise<DesignerChatReply> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/designer/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson<DesignerChatReply>(response);
 }

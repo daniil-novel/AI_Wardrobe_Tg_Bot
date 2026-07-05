@@ -111,14 +111,25 @@ export function InteractiveGarmentTile({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
     >
-      <div className={`garment-image ${item.imageClass}`}>
-        <Shirt className="garment-icon" size={36} strokeWidth={1.8} />
-        <span>{item.role}</span>
+      <div className={item.imageUrl ? "garment-image product-photo" : `garment-image ${item.imageClass}`}>
+        {item.imageUrl ? (
+          <img src={item.imageUrl} alt={item.title} loading="lazy" />
+        ) : (
+          <>
+            <Shirt className="garment-icon" size={36} strokeWidth={1.8} />
+            <span>{item.role}</span>
+          </>
+        )}
         {selectable || selected ? <Check className="select-check" size={18} /> : null}
       </div>
       <div className="garment-meta">
         <div>
           <h3>{item.title}</h3>
+          {item.brand || item.modelName ? (
+            <strong className="item-model">
+              {[item.brand, item.modelName].filter(Boolean).join(" · ")}
+            </strong>
+          ) : null}
           <p>
             {item.season} · {item.role}
           </p>

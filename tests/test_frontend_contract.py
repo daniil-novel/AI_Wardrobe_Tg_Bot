@@ -47,6 +47,26 @@ def test_miniapp_has_weather_and_scenario_chat() -> None:
     assert "/outfits/from-prompt" in api_file
 
 
+def test_miniapp_uses_real_item_images_health_and_designer_chat() -> None:
+    app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
+    api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
+    component_file = Path("apps/miniapp/src/components.tsx").read_text(encoding="utf-8")
+
+    for expected in (
+        "getWardrobeItemImageObjectUrl",
+        "getWardrobeHealth",
+        "sendDesignerChat",
+        "Чат с дизайнером",
+        "tomorrowOutfit",
+    ):
+        assert expected in app_file or expected in api_file
+
+    assert "/items/${itemId}/image" in api_file
+    assert "/wardrobe/health" in api_file
+    assert "/designer/chat" in api_file
+    assert "<img src={item.imageUrl}" in component_file
+
+
 def test_miniapp_does_not_use_demo_wardrobe_as_runtime_fallback() -> None:
     app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
     api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")

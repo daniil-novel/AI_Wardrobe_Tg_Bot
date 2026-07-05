@@ -19,6 +19,9 @@ def test_garment_analysis_accepts_scalar_season_and_percent_confidence() -> None
             "description": "Хлопковая футболка.",
             "season": "summer",
             "main_color": "blue",
+            "brand": "Adidas",
+            "model_name": "Samba OG",
+            "visual_identifiers": ["три полоски", "низкий силуэт"],
             "style_archetype": "casual",
             "designer_attributes": {"fit": "regular"},
             "confidence": 87,
@@ -29,6 +32,8 @@ def test_garment_analysis_accepts_scalar_season_and_percent_confidence() -> None
     assert analysis.season == ["summer"]
     assert analysis.style_archetype == ["casual"]
     assert analysis.confidence == 0.87
+    assert analysis.brand == "Adidas"
+    assert analysis.model_name == "Samba OG"
 
 
 def test_garment_analysis_keeps_fraction_confidence() -> None:

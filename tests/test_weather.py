@@ -30,9 +30,10 @@ def test_parse_open_meteo_returns_russian_summary() -> None:
                 "wind_speed_10m": 9,
             },
             "daily": {
-                "temperature_2m_min": [7],
-                "temperature_2m_max": [14],
-                "precipitation_probability_max": [70],
+                "weather_code": [61, 3],
+                "temperature_2m_min": [7, 10],
+                "temperature_2m_max": [14, 16],
+                "precipitation_probability_max": [70, 15],
             },
         }
     )
@@ -41,6 +42,8 @@ def test_parse_open_meteo_returns_russian_summary() -> None:
     assert "ощущается как 9°C" in summary.summary
     assert "осадки с вероятностью 70%" in summary.summary
     assert "ветер 9 м/с" in summary.context_line()
+    assert summary.tomorrow is not None
+    assert summary.tomorrow.summary == "пасмурно, от 10°C до 16°C."
 
 
 def test_weather_route_returns_cached_summary(monkeypatch) -> None:

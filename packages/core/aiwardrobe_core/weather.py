@@ -39,6 +39,14 @@ WEATHER_CODE_RU = {
 }
 
 
+class WeatherDay(BaseModel):
+    temperature_min_c: float
+    temperature_max_c: float
+    precipitation_probability: int
+    condition: str
+    summary: str
+
+
 class WeatherSummary(BaseModel):
     temperature_c: float
     feels_like_c: float
@@ -48,6 +56,7 @@ class WeatherSummary(BaseModel):
     wind_speed_ms: float
     condition: str
     summary: str
+    tomorrow: WeatherDay | None = None
 
     def context_line(self) -> str:
         """Compact single-line weather context for AI prompts."""
@@ -58,6 +67,31 @@ class WeatherSummary(BaseModel):
         )
 
 
+def _daily_value(daily: dict[str, Any], key: str, index: int, default: float | int) -> Any:
+    values = daily.get(key) or []
+    if isinstance(values, list) and len(values) > index:
+        return values[index]
+    return default
+
+
+def _weather_day(daily: dict[str, Any], index: int, fallback_temperature: float) -> WeatherDay:
+    code = int(_daily_value(daily, "weather_code", index, 3))
+    condition = WEATHER_CODE_RU.get(code, "облачно")
+    temp_min = float(_daily_value(daily, "temperature_2m_min", index, fallback_temperature))
+    temp_max = float(_daily_value(daily, "temperature_2m_max", index, fallback_temperature))
+    precipitation = int(_daily_value(daily, "precipitation_probability_max", index, 0) or 0)
+    parts = [f"{condition}, от {temp_min:.0f}°C до {temp_max:.0f}°C"]
+    if precipitation >= 30:
+        parts.append(f"осадки {precipitation}%")
+    return WeatherDay(
+        temperature_min_c=temp_min,
+        temperature_max_c=temp_max,
+        precipitation_probability=precipitation,
+        condition=condition,
+        summary=", ".join(parts) + ".",
+    )
+
+
 def parse_open_meteo(payload: dict[str, Any]) -> WeatherSummary:
     current = payload.get("current", {})
     daily = payload.get("daily", {})
@@ -65,9 +99,9 @@ def parse_open_meteo(payload: dict[str, Any]) -> WeatherSummary:
     condition = WEATHER_CODE_RU.get(code, "облачно")
     temperature = float(current.get("temperature_2m", 0.0))
     feels_like = float(current.get("apparent_temperature", temperature))
-    temp_min = float((daily.get("temperature_2m_min") or [temperature])[0])
-    temp_max = float((daily.get("temperature_2m_max") or [temperature])[0])
-    precipitation = int((daily.get("precipitation_probability_max") or [0])[0] or 0)
+    temp_min = float(_daily_value(daily, "temperature_2m_min", 0, temperature))
+    temp_max = float(_daily_value(daily, "temperature_2m_max", 0, temperature))
+    precipitation = int(_daily_value(daily, "precipitation_probability_max", 0, 0) or 0)
     wind = float(current.get("wind_speed_10m", 0.0))
 
     parts = [f"Сейчас {temperature:.0f}°C, {condition}"]
@@ -88,6 +122,7 @@ def parse_open_meteo(payload: dict[str, Any]) -> WeatherSummary:
         wind_speed_ms=wind,
         condition=condition,
         summary=", ".join(parts) + ".",
+        tomorrow=_weather_day(daily, 1, temperature),
     )
 
 
@@ -96,10 +131,10 @@ async def fetch_weather(latitude: float, longitude: float) -> WeatherSummary:
         "latitude": round(latitude, 4),
         "longitude": round(longitude, 4),
         "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
-        "daily": "temperature_2m_min,temperature_2m_max,precipitation_probability_max",
+        "daily": "weather_code,temperature_2m_min,temperature_2m_max,precipitation_probability_max",
         "wind_speed_unit": "ms",
         "timezone": "auto",
-        "forecast_days": 1,
+        "forecast_days": 2,
     }
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(OPEN_METEO_URL, params=params)

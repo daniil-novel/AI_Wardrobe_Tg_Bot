@@ -19,6 +19,8 @@ import {
 import {
   authenticateWithTelegram,
   deleteUpload,
+  getWardrobeHealth,
+  getWardrobeItemImageObjectUrl,
   getWeather,
   getUploadStatus,
   hasAccessToken,
@@ -27,12 +29,22 @@ import {
   recommendOutfit,
   retryUpload,
   runDesignerTool,
+  sendDesignerChat,
   uploadPhoto,
 } from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
 import { quickScenarios } from "./data";
 import { getTelegramWebApp } from "./telegram";
-import type { DesignerResult, DesignerToolKey, GarmentCard, OutfitCard, TabKey, UploadStatus, WeatherSummary } from "./types";
+import type {
+  DesignerResult,
+  DesignerToolKey,
+  GarmentCard,
+  OutfitCard,
+  TabKey,
+  UploadStatus,
+  WardrobeHealth,
+  WeatherSummary,
+} from "./types";
 import "./styles.css";
 
 type Notify = (message: string, tone?: "info" | "success" | "warning" | "error") => void;
@@ -53,21 +65,40 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
   const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [tomorrowOutfit, setTomorrowOutfit] = useState<OutfitCard | null>(null);
 
   useEffect(() => {
     if (!hasAccessToken()) {
       return;
     }
-    void Promise.all([listOutfits(), listWardrobeItems(), getWeather(55.7558, 37.6173).catch(() => null)])
-      .then(([outfits, items, weatherSummary]) => {
+    void Promise.all([listOutfits(), listWardrobeItems()])
+      .then(([outfits, items]) => {
         setOutfit(outfits[0] ?? null);
         setWardrobeItems(items);
-        setWeather(weatherSummary);
+        loadWeatherByLocation(true);
       })
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить состояние.", "error");
       });
   }, [onNotify]);
+
+  useEffect(() => {
+    if (!weather?.tomorrow || !hasAccessToken()) {
+      return;
+    }
+    void recommendOutfit({
+      prompt: `Предложи образ на завтра: ${weather.tomorrow.summary}. ${scenarioText}.`,
+      event_type: "Завтра",
+      weather: {
+        summary: weather.tomorrow.summary,
+        precipitation_probability: weather.tomorrow.precipitation_probability,
+        user_preference: weatherPreference,
+      },
+      variants_count: 1,
+    })
+      .then((outfits) => setTomorrowOutfit(outfits[0] ?? null))
+      .catch(() => setTomorrowOutfit(null));
+  }, [scenarioText, weather, weatherPreference]);
 
   function chooseOutfit() {
     if (!outfit) {
@@ -93,7 +124,7 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
     onNotify("Запрос нового варианта отправляется через backend рекомендации.", "info");
   }
 
-  function loadWeatherByLocation() {
+  function loadWeatherByLocation(silent = false) {
     if (!hasAccessToken()) {
       onNotify("Для точной погоды откройте Mini App внутри Telegram и войдите.", "warning");
       return;
@@ -108,7 +139,9 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
         void getWeather(position.coords.latitude, position.coords.longitude)
           .then((summary) => {
             setWeather(summary);
-            onNotify("Погода обновлена по текущей геолокации.", "success");
+            if (!silent) {
+              onNotify("Погода обновлена по текущей геолокации.", "success");
+            }
           })
           .catch((error: unknown) => {
             onNotify(error instanceof Error ? error.message : "Не удалось получить погоду.", "error");
@@ -117,7 +150,9 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       },
       () => {
         setWeatherLoading(false);
-        onNotify("Не удалось получить геолокацию. Можно описать погоду вручную.", "warning");
+        if (!silent) {
+          onNotify("Не удалось получить геолокацию. Можно описать погоду вручную.", "warning");
+        }
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 900000 },
     );
@@ -172,7 +207,7 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
           <strong>{weather ? weather.summary : "Погода ещё не уточнена"}</strong>
           <span>{weather ? "точная сводка через погодный API" : "Добавьте гео или опишите погоду в сценарии"}</span>
         </div>
-        <button type="button" onClick={loadWeatherByLocation} disabled={weatherLoading}>
+        <button type="button" onClick={() => loadWeatherByLocation(false)} disabled={weatherLoading}>
           <MapPin size={16} />
           {weatherLoading ? "..." : "Гео"}
         </button>
@@ -192,6 +227,16 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
           </span>
         </div>
       ) : null}
+
+      <article className="tomorrow-card">
+        <span className="eyebrow">Завтра</span>
+        <strong>{tomorrowOutfit?.title ?? "Автопредложение на завтра"}</strong>
+        <p>
+          {tomorrowOutfit?.reason ||
+            weather?.tomorrow?.summary ||
+            "Появится автоматически после входа и определения вашей геолокации."}
+        </p>
+      </article>
 
       <article className="scenario-chat">
         <div className="chat-head">
@@ -289,17 +334,35 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [remoteGarments, setRemoteGarments] = useState<GarmentCard[]>([]);
+  const [health, setHealth] = useState<WardrobeHealth | null>(null);
   const chips = ["Все", "Верх", "Низ", "Обувь", "Демисезон", "База", "Проверить"];
 
   useEffect(() => {
     if (!hasAccessToken()) {
       return;
     }
-    void listWardrobeItems()
+    const objectUrls: string[] = [];
+    void Promise.all([listWardrobeItems(), getWardrobeHealth()])
+      .then(([items, nextHealth]) => {
+        setRemoteGarments(items);
+        setHealth(nextHealth);
+        return Promise.all(
+          items.map(async (item) => {
+            const imageUrl = await getWardrobeItemImageObjectUrl(item.id);
+            if (imageUrl) {
+              objectUrls.push(imageUrl);
+            }
+            return { ...item, imageUrl };
+          }),
+        );
+      })
       .then(setRemoteGarments)
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить гардероб.", "error");
       });
+    return () => {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
   }, [onNotify]);
 
   const visibleGarments = remoteGarments.filter((item) => {
@@ -365,9 +428,16 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
       <article className="health-card">
         <div>
           <span className="eyebrow">Здоровье гардероба</span>
-          <h2>62%</h2>
+          <h2>{Math.round(health?.score ?? 0)}%</h2>
         </div>
-        <p>Не хватает дождевой обуви и одного спокойного верхнего слоя.</p>
+        <p>{health?.missing_roles?.[0] ?? "Добавьте вещи, чтобы увидеть реальное покрытие гардероба."}</p>
+        {health?.missing_roles?.length ? (
+          <ul className="health-list">
+            {health.missing_roles.slice(1, 4).map((role) => (
+              <li key={role}>{role}</li>
+            ))}
+          </ul>
+        ) : null}
       </article>
       {visibleGarments.length > 0 ? (
         <div className="garment-grid">
@@ -543,6 +613,14 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
     bullets: ["Нажмите на инструмент выше, чтобы получить разбор."],
   });
   const [busy, setBusy] = useState(false);
+  const [chatInput, setChatInput] = useState("Что надеть завтра, если я мёрзну сильнее обычного?");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
+    {
+      role: "assistant",
+      text: "Напишите сценарий дня, погоду или ощущение температуры — я отвечу с учётом вашего гардероба.",
+    },
+  ]);
   const tools = [
     ["gaps", "layers", "Чего не хватает?", "Пробелы гардероба и приоритеты"],
     ["anchor", "bot", "Собрать с вещью", "Опорная вещь · погода · событие"],
@@ -602,6 +680,37 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
     }
   }
 
+  async function sendChatMessage() {
+    const message = chatInput.trim();
+    if (!message) {
+      onNotify("Напишите вопрос дизайнеру.", "warning");
+      return;
+    }
+    if (!hasAccessToken()) {
+      onNotify("Откройте Mini App внутри Telegram, чтобы чат видел ваш гардероб.", "warning");
+      return;
+    }
+    setChatBusy(true);
+    setChatMessages((current) => [...current, { role: "user", text: message }]);
+    setChatInput("");
+    try {
+      const response = await sendDesignerChat({
+        message,
+        scenario: "чат дизайнера",
+        preferences: "учитывать личную чувствительность к холоду и жаре",
+      });
+      setChatMessages((current) => [...current, { role: "assistant", text: response.reply }]);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Дизайнер сейчас недоступен.", "error");
+      setChatMessages((current) => [
+        ...current,
+        { role: "assistant", text: "Не смогла получить ответ от AI-дизайнера. Попробуйте ещё раз чуть позже." },
+      ]);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   return (
     <section className="screen-stack">
       <header className="compact-header">
@@ -634,6 +743,32 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
             <li key={bullet}>{bullet}</li>
           ))}
         </ul>
+      </article>
+      <article className="designer-chat-panel">
+        <div className="chat-head">
+          <MessageCircle size={20} />
+          <div>
+            <strong>Чат с дизайнером</strong>
+            <span>Спросите про день, погоду, покупку или конкретную вещь</span>
+          </div>
+        </div>
+        <div className="chat-log">
+          {chatMessages.map((message, index) => (
+            <p className={message.role} key={`${message.role}-${index}`}>
+              {message.text}
+            </p>
+          ))}
+        </div>
+        <textarea
+          value={chatInput}
+          onChange={(event) => setChatInput(event.target.value)}
+          rows={3}
+          placeholder="Например: завтра офис и дождь, хочу тепло, но не слишком формально."
+        />
+        <button className="chat-submit" type="button" disabled={chatBusy} onClick={sendChatMessage}>
+          {chatBusy ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+          Спросить дизайнера
+        </button>
       </article>
       <article className="style-dna">
         <span className="eyebrow">Профиль стиля</span>

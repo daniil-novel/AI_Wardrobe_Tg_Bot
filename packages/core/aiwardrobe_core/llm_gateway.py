@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from aiwardrobe_core.config import Settings, get_settings
 
@@ -19,12 +19,17 @@ GARMENT_ANALYSIS_SCHEMA_PROMPT = (
     "description (string IN RUSSIAN, 1-2 sentences about the garment only), "
     'season (array of strings from "winter", "spring", "summer", "autumn", "all_season"), '
     "main_color (string IN RUSSIAN, e.g. «синий»), "
+    "brand (string or null, visible brand only; use null if not visible), "
+    "model_name (string or null, exact visible/recognizable product model only; use null if unsure), "
+    "visual_identifiers (array of RUSSIAN strings: logo, stripes, sole shape, fabric cues), "
     'style_archetype (array of strings from "casual", "classic", "sport", "street", "business", "evening"), '
     "designer_attributes (object with any of fit, fabric, pattern, neckline, length as RUSSIAN strings), "
     "confidence (number between 0 and 1), "
     "designer_reasoning (string IN RUSSIAN: why the item works and how to style it). "
-    "All free-text values must be in Russian; category, season and style_archetype must use "
-    "the exact English tokens listed above."
+    "If brand/model is visible or confidently recognizable, title MUST include it in Russian, for example "
+    "«Кроссовки Adidas Samba OG», not generic «Чёрные кроссовки». If model is uncertain, include brand and type "
+    "only, and put uncertainty into visual_identifiers. All free-text values must be in Russian; category, season "
+    "and style_archetype must use the exact English tokens listed above."
 )
 
 
@@ -44,6 +49,9 @@ class GarmentAnalysis(BaseModel):
     description: str
     season: list[str]
     main_color: str
+    brand: str | None = None
+    model_name: str | None = None
+    visual_identifiers: list[str] = Field(default_factory=list)
     style_archetype: list[str]
     designer_attributes: dict[str, Any]
     confidence: float

@@ -13,6 +13,7 @@ def test_user_data_routes_are_protected_integration() -> None:
         ("GET", "/style-dna"),
         ("GET", "/wardrobe/health"),
         ("GET", "/ai/usage"),
+        ("POST", "/designer/chat"),
     ]
 
     for method, path in protected_routes:

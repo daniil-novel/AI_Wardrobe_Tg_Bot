@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from aiwardrobe_core.models import StyleDna, UserStyleRule, WardrobeHealthSnapshot
+from aiwardrobe_core.models import GarmentItem, StyleDna, UserStyleRule, WardrobeHealthSnapshot
 from aiwardrobe_core.schemas import StyleDnaRead, StyleRuleCreate, StyleRuleRead, WardrobeHealthRead
 from fastapi import APIRouter
 from sqlalchemy import select
@@ -67,7 +67,7 @@ async def wardrobe_health(user_id: UUID = CurrentUser, session: AsyncSession = D
     )
     snapshot = result.scalar_one_or_none()
     if snapshot is None:
-        return WardrobeHealthRead()
+        return await calculate_wardrobe_health(session, user_id)
     return WardrobeHealthRead(
         score=snapshot.score,
         coverage_by_season=dict(snapshot.coverage_by_season),
@@ -75,6 +75,73 @@ async def wardrobe_health(user_id: UUID = CurrentUser, session: AsyncSession = D
         missing_roles=list(snapshot.missing_roles),
         duplicate_groups=list(snapshot.duplicate_groups),
         orphan_items=list(snapshot.orphan_items),
+    )
+
+
+async def calculate_wardrobe_health(session: AsyncSession, user_id: UUID) -> WardrobeHealthRead:
+    result = await session.execute(
+        select(GarmentItem).where(
+            GarmentItem.user_id == user_id,
+            GarmentItem.deleted_at.is_(None),
+            GarmentItem.is_hidden.is_(False),
+        )
+    )
+    items = list(result.scalars())
+    if not items:
+        return WardrobeHealthRead(
+            score=0,
+            missing_roles=[
+                "Добавьте верх, низ, обувь и верхний слой, чтобы начать считать покрытие гардероба.",
+            ],
+            coverage_by_season={},
+            coverage_by_event={},
+        )
+
+    required_categories = {
+        "top": "верх",
+        "bottom": "низ",
+        "shoes": "обувь",
+        "outerwear": "верхний слой",
+    }
+    category_counts = {category: 0 for category in required_categories}
+    season_counts = {"winter": 0, "spring": 0, "summer": 0, "autumn": 0, "all_season": 0}
+    duplicates: dict[str, int] = {}
+    orphan_items: list[str] = []
+    for item in items:
+        if item.category in category_counts:
+            category_counts[item.category] += 1
+        for season in item.season:
+            if isinstance(season, str) and season in season_counts:
+                season_counts[season] += 1
+        key = f"{item.category}:{(item.main_color or '').lower()}:{(item.title or '').lower()[:30]}"
+        duplicates[key] = duplicates.get(key, 0) + 1
+        if item.confidence < 0.55:
+            orphan_items.append(f"{item.title}: низкая уверенность распознавания")
+
+    missing_roles = [
+        f"Не хватает: {label}." for category, label in required_categories.items() if category_counts[category] == 0
+    ]
+    if season_counts["winter"] == 0 and season_counts["all_season"] == 0:
+        missing_roles.append("Нет вещей для холодной погоды.")
+    if category_counts["shoes"] < 2:
+        missing_roles.append("Мало обуви для разных погодных сценариев.")
+
+    duplicate_groups = [key for key, count in duplicates.items() if count > 1]
+    category_score = sum(1 for count in category_counts.values() if count > 0) / len(required_categories)
+    season_score = min(1.0, (sum(1 for count in season_counts.values() if count > 0) / 5) + 0.15)
+    confidence_score = sum(float(item.confidence) for item in items) / max(len(items), 1)
+    score = round(max(0, min(100, category_score * 45 + season_score * 30 + confidence_score * 25)))
+
+    return WardrobeHealthRead(
+        score=score,
+        coverage_by_season=season_counts,
+        coverage_by_event={
+            "base_roles": category_counts,
+            "item_count": len(items),
+        },
+        missing_roles=missing_roles,
+        duplicate_groups=duplicate_groups,
+        orphan_items=orphan_items,
     )
 
 

@@ -10,6 +10,7 @@ import httpx
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.db import get_session_factory
 from aiwardrobe_core.enums import GarmentStatus, ProcessingStatus, ProvenanceLabel
+from aiwardrobe_core.image_processing import ImageProcessingError, create_white_background_product_image
 from aiwardrobe_core.image_validation import (
     ImageValidationError,
     detect_image_content_type,
@@ -45,6 +46,7 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
             await session.commit()
 
             try:
+                content: bytes | None = None
                 if storage_key.startswith(("http://", "https://")):
                     image_url = storage_key
                 else:
@@ -58,6 +60,27 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                     "Analyze the clothing image and return image_type, item fields, season, color, "
                     "style, designer_attributes and confidence.",
                 )
+                processed_image_id = None
+                if content is not None:
+                    try:
+                        processed_content = create_white_background_product_image(content)
+                        processed_key = build_storage_key(upload.user_id, "processed", f"{upload.id}.jpg")
+                        await ObjectStorage(settings).put_bytes(processed_key, processed_content, "image/jpeg")
+                        processed_image = ImageAsset(
+                            user_id=upload.user_id,
+                            source_type="processed",
+                            storage_key=processed_key,
+                            provenance_label=ProvenanceLabel.USER_PROCESSED.value,
+                            generated_prompt="Normalized item photo on a white product background.",
+                        )
+                        session.add(processed_image)
+                        await session.flush()
+                        processed_image_id = processed_image.id
+                    except ImageProcessingError:
+                        logger.warning(
+                            "Product image normalization failed",
+                            extra={"upload_id_hash": hash_identifier(upload_id)},
+                        )
                 item = GarmentItem(
                     user_id=upload.user_id,
                     title=analysis.title,
@@ -68,12 +91,16 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                     style_archetype=analysis.style_archetype,
                     designer_attributes={
                         **analysis.designer_attributes,
+                        "brand": analysis.brand,
+                        "model_name": analysis.model_name,
+                        "visual_identifiers": analysis.visual_identifiers,
                         "designer_reasoning": analysis.designer_reasoning,
                     },
                     confidence=Decimal(str(analysis.confidence)),
                     status=GarmentStatus.NEEDS_CONFIRMATION.value,
                     source_upload_id=upload.id,
                     original_image_id=upload.original_image_id,
+                    processed_image_id=processed_image_id,
                 )
                 receipt = PrivacyReceipt(
                     user_id=upload.user_id,
