@@ -37,6 +37,7 @@ async def upsert_telegram_user(session: AsyncSession, telegram_user: dict[str, A
     user.telegram_username = telegram_user.get("username")
     user.first_name = telegram_user.get("first_name")
     user.language = telegram_user.get("language_code") or user.language or "ru"
+    await session.flush()
     return user
 
 
