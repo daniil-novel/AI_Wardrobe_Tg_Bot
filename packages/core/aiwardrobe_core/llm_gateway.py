@@ -1,13 +1,38 @@
+import json
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from aiwardrobe_core.config import Settings, get_settings
 
 
 class LlmGatewayError(RuntimeError):
     pass
+
+
+GARMENT_ANALYSIS_SCHEMA_PROMPT = (
+    "Return ONLY a JSON object with exactly these fields: "
+    'image_type (string, one of "item", "look", "screenshot", "other"), '
+    "title (string, short item name), "
+    "category (string, e.g. top/bottom/outerwear/shoes/accessory/dress), "
+    "description (string, 1-2 sentences about the garment only), "
+    'season (array of strings from "winter", "spring", "summer", "autumn", "all_season"), '
+    "main_color (string), "
+    "style_archetype (array of strings, e.g. casual/classic/sport/street), "
+    "designer_attributes (object with any of fit, fabric, pattern, neckline, length as strings), "
+    "confidence (number between 0 and 1), "
+    "designer_reasoning (string, why the item works and how to style it)."
+)
+
+
+def extract_json_object(content: str) -> str:
+    """Trim markdown fences or prose around the outermost JSON object."""
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return content
+    return content[start : end + 1]
 
 
 class GarmentAnalysis(BaseModel):
@@ -21,6 +46,20 @@ class GarmentAnalysis(BaseModel):
     designer_attributes: dict[str, Any]
     confidence: float
     designer_reasoning: str
+
+    @field_validator("season", "style_archetype", mode="before")
+    @classmethod
+    def wrap_scalar_in_list(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [value]
+        return value
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_confidence(cls, value: Any) -> Any:
+        if isinstance(value, int | float) and 1 < float(value) <= 100:
+            return float(value) / 100
+        return value
 
 
 class LlmGateway:
@@ -38,8 +77,8 @@ class LlmGateway:
                     "role": "system",
                     "content": (
                         "You are a safe fashion analysis service. Analyze clothing only. "
-                        "Return strict JSON matching the requested schema. Do not assess face, body, "
-                        "age, attractiveness, health, or identity."
+                        "Do not assess face, body, age, attractiveness, health, or identity. "
+                        + GARMENT_ANALYSIS_SCHEMA_PROMPT
                     ),
                 },
                 {
@@ -65,7 +104,7 @@ class LlmGateway:
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         try:
-            return GarmentAnalysis.model_validate_json(content)
+            return GarmentAnalysis.model_validate_json(extract_json_object(content))
         except ValidationError as exc:
             raise LlmGatewayError("OpenRouter response failed GarmentAnalysis validation.") from exc
 
@@ -87,7 +126,10 @@ class LlmGateway:
             )
         response.raise_for_status()
         content: str = response.json()["choices"][0]["message"]["content"]
-        parsed: Any = httpx.Response(200, content=content).json()
+        try:
+            parsed: Any = json.loads(extract_json_object(content))
+        except json.JSONDecodeError as exc:
+            raise LlmGatewayError("OpenRouter text response was not valid JSON.") from exc
         if not isinstance(parsed, dict):
             raise LlmGatewayError("OpenRouter text response was not a JSON object.")
         return parsed
