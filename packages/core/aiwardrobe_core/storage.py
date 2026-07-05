@@ -51,6 +51,18 @@ class ObjectStorage:
             )
             return cast(str, signed_url)
 
+    async def get_bytes(self, storage_key: str) -> bytes:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            endpoint_url=self.settings.s3_endpoint_url,
+            aws_access_key_id=self.settings.s3_access_key_id,
+            aws_secret_access_key=self.settings.s3_secret_access_key,
+            region_name=self.settings.s3_region,
+        ) as client:
+            response = await client.get_object(Bucket=self.settings.s3_bucket, Key=storage_key)
+            return cast(bytes, await response["Body"].read())
+
     async def put_bytes(self, storage_key: str, content: bytes, content_type: str) -> None:
         session = aioboto3.Session()
         async with session.client(

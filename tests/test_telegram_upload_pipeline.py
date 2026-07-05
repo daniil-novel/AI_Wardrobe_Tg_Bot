@@ -181,10 +181,12 @@ def test_upload_retry_re_enqueues_real_tasks() -> None:
     assert "analyze_upload.delay" in ai_router
 
 
-def test_worker_generates_presigned_url_from_storage_key() -> None:
+def test_worker_sends_private_image_inline_from_storage_key() -> None:
     tasks_file = Path("apps/worker/aiwardrobe_worker/tasks.py").read_text(encoding="utf-8")
 
-    assert "create_presigned_get_url" in tasks_file
+    assert "get_bytes" in tasks_file
+    assert "data:" in tasks_file
+    assert "b64encode" in tasks_file
     assert "def analyze_upload(self: Any, upload_id: str, storage_key: str)" in tasks_file
 
 

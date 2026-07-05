@@ -1,5 +1,6 @@
 import asyncio
 import time
+from base64 import b64encode
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -9,7 +10,11 @@ import httpx
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.db import get_session_factory
 from aiwardrobe_core.enums import GarmentStatus, ProcessingStatus, ProvenanceLabel
-from aiwardrobe_core.image_validation import ImageValidationError, validate_image_content
+from aiwardrobe_core.image_validation import (
+    ImageValidationError,
+    detect_image_content_type,
+    validate_image_content,
+)
 from aiwardrobe_core.llm_gateway import LlmGateway
 from aiwardrobe_core.logging import hash_identifier
 from aiwardrobe_core.models import AiRequest, GarmentItem, ImageAsset, OutfitCard, OutfitItem, PrivacyReceipt, Upload
@@ -41,11 +46,15 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
 
             try:
                 if storage_key.startswith(("http://", "https://")):
-                    signed_image_url = storage_key
+                    image_url = storage_key
                 else:
-                    signed_image_url = await ObjectStorage(settings).create_presigned_get_url(storage_key)
+                    # The AI provider cannot reach the private object network, so the
+                    # image travels inline as a data URL instead of a presigned link.
+                    content = await ObjectStorage(settings).get_bytes(storage_key)
+                    content_type = detect_image_content_type(content) or "image/jpeg"
+                    image_url = f"data:{content_type};base64,{b64encode(content).decode()}"
                 analysis = await LlmGateway(settings).analyze_image(
-                    signed_image_url,
+                    image_url,
                     "Analyze the clothing image and return image_type, item fields, season, color, "
                     "style, designer_attributes and confidence.",
                 )
