@@ -74,7 +74,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return "auth", self.settings.rate_limit_auth_per_minute
         if path.startswith("/uploads") and request.method != "GET":
             return "uploads", self.settings.rate_limit_uploads_per_minute
-        if path.startswith("/ai") and request.method != "GET":
+        if path.startswith(("/ai", "/designer", "/outfits/recommend", "/outfits/from-prompt")) and (
+            request.method != "GET"
+        ):
             return "ai", self.settings.rate_limit_ai_per_minute
         return None
 

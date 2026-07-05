@@ -153,6 +153,9 @@ class DesignerChatResponse(BaseModel):
     reply: str
     outfit_id: UUID | None = None
     outfit_title: str | None = None
+    outfit_explanation: str | None = None
+    outfit_score: float | None = None
+    outfit_item_ids: list[UUID] = Field(default_factory=list)
     item_count: int = 0
 
 
@@ -164,6 +167,7 @@ class OutfitRead(BaseModel):
     explanation: str | None = None
     designer_reasoning: dict[str, Any] = Field(default_factory=dict)
     is_favorite: bool = False
+    item_ids: list[UUID] = Field(default_factory=list)
 
 
 class AiTaskRequest(BaseModel):

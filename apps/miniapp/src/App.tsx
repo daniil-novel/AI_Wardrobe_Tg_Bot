@@ -19,6 +19,7 @@ import {
 import {
   authenticateWithTelegram,
   deleteUpload,
+  favoriteOutfit,
   getWardrobeHealth,
   getWardrobeItemImageObjectUrl,
   getWeather,
@@ -27,8 +28,10 @@ import {
   listOutfits,
   listWardrobeItems,
   recommendOutfit,
+  recommendWithAnchors,
   retryUpload,
   runDesignerTool,
+  selectOutfit,
   sendDesignerChat,
   uploadPhoto,
 } from "./api";
@@ -56,7 +59,9 @@ const uploadModes: Array<{ key: UploadMode; label: string }> = [
   { key: "auto", label: "Авто" },
 ];
 
-function TodayScreen({ onNotify }: { onNotify: Notify }) {
+const MOSCOW = { latitude: 55.7558, longitude: 37.6173 };
+
+function TodayScreen({ onNotify, authReady }: { onNotify: Notify; authReady: boolean }) {
   const [outfit, setOutfit] = useState<OutfitCard | null>(null);
   const [wardrobeItems, setWardrobeItems] = useState<GarmentCard[]>([]);
   const [selectedScenario, setSelectedScenario] = useState("Много метро");
@@ -65,10 +70,12 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
   const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatReply, setChatReply] = useState<string | null>(null);
   const [tomorrowOutfit, setTomorrowOutfit] = useState<OutfitCard | null>(null);
+  const [itemImages, setItemImages] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!hasAccessToken()) {
+    if (!authReady) {
       return;
     }
     void Promise.all([listOutfits(), listWardrobeItems()])
@@ -80,10 +87,37 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить состояние.", "error");
       });
-  }, [onNotify]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, onNotify]);
+
+  const heroItemIds = (outfit?.items?.length ? outfit.items : wardrobeItems.map((item) => item.id)).slice(0, 4);
 
   useEffect(() => {
-    if (!weather?.tomorrow || !hasAccessToken()) {
+    if (!authReady) {
+      return;
+    }
+    const missing = heroItemIds.filter((id) => !itemImages[id]);
+    if (missing.length === 0) {
+      return;
+    }
+    void Promise.all(
+      missing.map(async (id) => [id, await getWardrobeItemImageObjectUrl(id)] as const),
+    ).then((pairs) => {
+      setItemImages((current) => {
+        const next = { ...current };
+        for (const [id, url] of pairs) {
+          if (url) {
+            next[id] = url;
+          }
+        }
+        return next;
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, heroItemIds.join(",")]);
+
+  useEffect(() => {
+    if (!weather?.tomorrow || !authReady) {
       return;
     }
     void recommendOutfit({
@@ -98,30 +132,77 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
     })
       .then((outfits) => setTomorrowOutfit(outfits[0] ?? null))
       .catch(() => setTomorrowOutfit(null));
-  }, [scenarioText, weather, weatherPreference]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, weather]);
 
-  function chooseOutfit() {
+  function applyChatResult(reply: {
+    reply: string;
+    outfit_id?: string | null;
+    outfit_title?: string | null;
+    outfit_explanation?: string | null;
+    outfit_score?: number | null;
+    outfit_item_ids?: string[];
+  }) {
+    setChatReply(reply.reply);
+    if (reply.outfit_id) {
+      setOutfit({
+        id: reply.outfit_id,
+        title: reply.outfit_title ?? "Образ дня",
+        context: "AI-дизайнер",
+        score: Math.round(reply.outfit_score ?? 75),
+        comfort: Math.round(reply.outfit_score ?? 75),
+        items: reply.outfit_item_ids ?? [],
+        reason: reply.outfit_explanation || reply.reply,
+      });
+    }
+  }
+
+  async function askDesigner(message: string, successNote: string) {
+    if (!authReady) {
+      onNotify("Откройте Mini App внутри Telegram, чтобы дизайнер видел ваш гардероб.", "warning");
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await sendDesignerChat({
+        message,
+        scenario: selectedScenario,
+        preferences: weatherPreference,
+        weather_context: weather?.summary,
+      });
+      applyChatResult(response);
+      onNotify(response.outfit_id ? successNote : "Дизайнер ответил — смотрите комментарий ниже.", "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "AI-дизайнер сейчас недоступен.", "error");
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function chooseOutfit() {
     if (!outfit) {
       return;
     }
-    onNotify("Образ выбран и записан в историю носки.", "success");
+    try {
+      await selectOutfit(outfit.id);
+      onNotify("Образ выбран и записан в историю носки.", "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось сохранить выбор образа.", "error");
+    }
   }
 
   function makeWarmer() {
-    if (!outfit) {
-      return;
-    }
-    setOutfit({
-      ...outfit,
-      title: "Теплее: слой + ботинки",
-      score: Math.min(outfit.score + 2, 98),
-      reason: "Добавлен верхний слой для ветра и дождя, база осталась нейтральной.",
-    });
-    onNotify("Собрала более тёплый вариант.", "success");
+    void askDesigner(
+      `Сделай образ теплее: ${outfit ? `текущий образ «${outfit.title}»` : "собери образ"}. Я мерзну сильнее обычного.`,
+      "Собрала более тёплый вариант.",
+    );
   }
 
   function anotherOutfit() {
-    onNotify("Запрос нового варианта отправляется через backend рекомендации.", "info");
+    void askDesigner(
+      `Собери другой вариант образа под сценарий: ${scenarioText || selectedScenario}. Предыдущий вариант не подошёл.`,
+      "Собрала другой вариант.",
+    );
   }
 
   function loadWeatherByLocation(silent = false) {
@@ -129,8 +210,22 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       onNotify("Для точной погоды откройте Mini App внутри Telegram и войдите.", "warning");
       return;
     }
+    const fallbackToMoscow = () => {
+      void getWeather(MOSCOW.latitude, MOSCOW.longitude)
+        .then((summary) => {
+          setWeather(summary);
+          onNotify("Гео недоступно — показываю погоду для Москвы. Нажмите «Гео», чтобы уточнить.", "warning");
+        })
+        .catch(() => {
+          if (!silent) {
+            onNotify("Не удалось получить погоду.", "error");
+          }
+        })
+        .finally(() => setWeatherLoading(false));
+    };
     if (!navigator.geolocation) {
-      onNotify("Геолокация недоступна в этом браузере.", "warning");
+      setWeatherLoading(true);
+      fallbackToMoscow();
       return;
     }
     setWeatherLoading(true);
@@ -148,12 +243,7 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
           })
           .finally(() => setWeatherLoading(false));
       },
-      () => {
-        setWeatherLoading(false);
-        if (!silent) {
-          onNotify("Не удалось получить геолокацию. Можно описать погоду вручную.", "warning");
-        }
-      },
+      fallbackToMoscow,
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 900000 },
     );
   }
@@ -164,29 +254,7 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       onNotify("Опишите сценарий дня: куда идёте, сколько ходить и насколько тепло хочется.", "warning");
       return;
     }
-    if (!hasAccessToken()) {
-      onNotify("Сценарий сохранён локально. Для подбора из гардероба нужен вход через Telegram.", "warning");
-      return;
-    }
-    setChatBusy(true);
-    try {
-      const outfits = await recommendOutfit({
-        prompt,
-        event_type: selectedScenario,
-        weather: {
-          summary: weather?.summary,
-          temperature_c: weather?.temperature_c,
-          feels_like_c: weather?.feels_like_c,
-          user_preference: weatherPreference,
-        },
-      });
-      setOutfit(outfits[0] ?? null);
-      onNotify(outfits.length ? "Собрала рекомендацию под ваш день." : "Пока не хватает вещей для образа.", "success");
-    } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Не удалось собрать образ.", "error");
-    } finally {
-      setChatBusy(false);
-    }
+    await askDesigner(prompt, "Собрала рекомендацию под ваш день.");
   }
 
   return (
@@ -268,6 +336,12 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
           {chatBusy ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
           Подобрать образ
         </button>
+        {chatReply ? (
+          <div className="chat-reply">
+            <Bot size={16} />
+            <p>{chatReply}</p>
+          </div>
+        ) : null}
       </article>
 
       {outfit ? (
@@ -280,9 +354,13 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
             <ScoreBadge score={outfit.score} />
           </div>
           <div className="mini-grid">
-            {wardrobeItems.slice(0, 4).map((item) => (
-              <div className="mini-item" key={item.id}>
-                <div className={item.imageClass} />
+            {heroItemIds.map((itemId) => (
+              <div className="mini-item" key={itemId}>
+                {itemImages[itemId] ? (
+                  <img src={itemImages[itemId]} alt="Вещь образа" loading="lazy" />
+                ) : (
+                  <div className="swatch-denim" />
+                )}
               </div>
             ))}
           </div>
@@ -328,17 +406,18 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
   );
 }
 
-function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
+function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: boolean }) {
   const [activeChip, setActiveChip] = useState("Все");
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [remoteGarments, setRemoteGarments] = useState<GarmentCard[]>([]);
   const [health, setHealth] = useState<WardrobeHealth | null>(null);
-  const chips = ["Все", "Верх", "Низ", "Обувь", "Демисезон", "База", "Проверить"];
+  const [composeBusy, setComposeBusy] = useState(false);
+  const chips = ["Все", "Верх", "Низ", "Обувь", "Верхний слой", "Платье", "Аксессуар", "Проверить"];
 
   useEffect(() => {
-    if (!hasAccessToken()) {
+    if (!authReady) {
       return;
     }
     const objectUrls: string[] = [];
@@ -363,15 +442,18 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
     return () => {
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [onNotify]);
+  }, [authReady, onNotify]);
 
   const visibleGarments = remoteGarments.filter((item) => {
     const normalizedChip = activeChip.toLowerCase();
+    const needsReview = (item.confidence ?? 1) < 0.85 || item.status === "needs_confirmation";
     const byChip =
       activeChip === "Все" ||
-      item.role.toLowerCase().includes(normalizedChip) ||
-      item.season.toLowerCase().includes(normalizedChip) ||
-      item.title.toLowerCase().includes(normalizedChip);
+      (activeChip === "Проверить"
+        ? needsReview
+        : item.role.toLowerCase().includes(normalizedChip) ||
+          item.season.toLowerCase().includes(normalizedChip) ||
+          item.title.toLowerCase().includes(normalizedChip));
     const bySearch = !query || (item.searchText ?? item.title.toLowerCase()).includes(query.toLowerCase());
     return byChip && bySearch;
   });
@@ -457,10 +539,26 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
       <button
         className="wide-primary"
         type="button"
-        disabled={selectedItems.size === 0}
-        onClick={() => onNotify(`Собираю образ с выбранными вещами: ${selectedItems.size}.`, "success")}
+        disabled={selectedItems.size === 0 || composeBusy}
+        onClick={() => {
+          setComposeBusy(true);
+          void recommendWithAnchors(Array.from(selectedItems))
+            .then((outfits) => {
+              const created = outfits[0];
+              if (created) {
+                onNotify(`Образ «${created.title}» создан — он на вкладках «Сегодня» и «Избранное».`, "success");
+                setSelectedItems(new Set());
+              } else {
+                onNotify("Не удалось собрать образ из выбранных вещей.", "warning");
+              }
+            })
+            .catch((error: unknown) => {
+              onNotify(error instanceof Error ? error.message : "Не удалось собрать образ.", "error");
+            })
+            .finally(() => setComposeBusy(false));
+        }}
       >
-        Собрать с выбранными
+        {composeBusy ? "Собираю..." : "Собрать с выбранными"}
       </button>
     </section>
   );
@@ -784,40 +882,63 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
   );
 }
 
-function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
-  const tabs = ["Луки", "Образы", "Хотелки", "Мудборд"];
+function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady: boolean }) {
+  const tabs = ["Все образы", "Избранные"];
   const [activeFavoriteTab, setActiveFavoriteTab] = useState(tabs[0]);
-  const [favorite, setFavorite] = useState(true);
   const [outfits, setOutfits] = useState<OutfitCard[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [similarBusy, setSimilarBusy] = useState(false);
 
   useEffect(() => {
-    if (!hasAccessToken()) {
+    if (!authReady) {
       return;
     }
     void listOutfits()
-      .then((items) => setOutfits(items.filter((item) => item.score > 0)))
+      .then((items) => {
+        setOutfits(items);
+        setFavoriteIds(new Set(items.filter((item) => item.favorite).map((item) => item.id)));
+      })
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить избранное.", "error");
       });
-  }, [onNotify]);
+  }, [authReady, onNotify]);
 
-  const primaryOutfit = outfits[0] ?? null;
+  const visibleOutfits = (
+    activeFavoriteTab === "Избранные" ? outfits.filter((outfit) => favoriteIds.has(outfit.id)) : outfits
+  ).slice(0, 10);
+
+  async function toggleFavorite(outfit: OutfitCard) {
+    try {
+      await favoriteOutfit(outfit.id);
+      setFavoriteIds((current) => new Set(current).add(outfit.id));
+      onNotify(`«${outfit.title}» в избранном.`, "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось сохранить в избранное.", "error");
+    }
+  }
+
+  async function similarOutfit(outfit: OutfitCard) {
+    setSimilarBusy(true);
+    try {
+      const response = await sendDesignerChat({
+        message: `Собери похожий образ на «${outfit.title}», но с другими акцентами. Обоснование прежнего: ${outfit.reason}`,
+      });
+      onNotify(response.outfit_id ? `Готово: «${response.outfit_title}».` : response.reply, "success");
+      if (response.outfit_id) {
+        const refreshed = await listOutfits();
+        setOutfits(refreshed);
+      }
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось собрать похожий образ.", "error");
+    } finally {
+      setSimilarBusy(false);
+    }
+  }
 
   return (
     <section className="screen-stack">
       <header className="compact-header">
         <h1>Избранное</h1>
-        <button
-          className={favorite ? "round-button active" : "round-button"}
-          type="button"
-          aria-label="Избранное"
-          onClick={() => {
-            setFavorite((value) => !value);
-            onNotify(favorite ? "Убрала из избранного." : "Вернула в избранное.", "success");
-          }}
-        >
-          <Heart size={20} />
-        </button>
       </header>
       <div className="tabs">
         {tabs.map((tab) => (
@@ -831,24 +952,44 @@ function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
           </button>
         ))}
       </div>
-      {primaryOutfit ? (
-        <article className="favorite-look">
-          <div>
-            <span className="eyebrow">{activeFavoriteTab}</span>
-            <h2>{primaryOutfit.title}</h2>
-            <p>{primaryOutfit.reason}</p>
-          </div>
-          <div className="action-row two">
-            <button className="primary" type="button" onClick={() => onNotify("Генерирую похожий образ.", "success")}>
-              Похожий
-            </button>
-            <button type="button" onClick={() => onNotify(primaryOutfit.reason)}>
-              Почему работает
-            </button>
-          </div>
-        </article>
+      {visibleOutfits.length > 0 ? (
+        visibleOutfits.map((outfit) => (
+          <article className="favorite-look" key={outfit.id}>
+            <div>
+              <div className="favorite-head">
+                <h2>{outfit.title}</h2>
+                <button
+                  className={favoriteIds.has(outfit.id) ? "round-button active" : "round-button"}
+                  type="button"
+                  aria-label="В избранное"
+                  onClick={() => void toggleFavorite(outfit)}
+                >
+                  <Heart size={18} />
+                </button>
+              </div>
+              <p>{outfit.reason}</p>
+            </div>
+            <div className="action-row two">
+              <button
+                className="primary"
+                type="button"
+                disabled={similarBusy}
+                onClick={() => void similarOutfit(outfit)}
+              >
+                {similarBusy ? "Собираю..." : "Похожий"}
+              </button>
+              <button type="button" onClick={() => onNotify(outfit.reason)}>
+                Почему работает
+              </button>
+            </div>
+          </article>
+        ))
       ) : (
-        <SmartCard icon="archive" title="Избранное пусто" text="Сохранённые луки и аутфиты появятся здесь" />
+        <SmartCard
+          icon="archive"
+          title={activeFavoriteTab === "Избранные" ? "Избранных пока нет" : "Образов пока нет"}
+          text="Соберите образ на вкладке «Сегодня» и отметьте сердечком"
+        />
       )}
     </section>
   );
@@ -857,6 +998,7 @@ function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("today");
   const [toast, setToast] = useState<{ message: string; tone: string } | null>(null);
+  const [authReady, setAuthReady] = useState(hasAccessToken());
   const webApp = useMemo(() => getTelegramWebApp(), []);
 
   const notify = useMemo<Notify>(
@@ -887,9 +1029,11 @@ export default function App() {
       notify("Откройте Mini App внутри Telegram для входа.", "warning");
       return;
     }
-    void authenticateWithTelegram(webApp.initData).catch((error: unknown) => {
-      notify(error instanceof Error ? error.message : "Не удалось выполнить вход через Telegram.", "error");
-    });
+    void authenticateWithTelegram(webApp.initData)
+      .then(() => setAuthReady(true))
+      .catch((error: unknown) => {
+        notify(error instanceof Error ? error.message : "Не удалось выполнить вход через Telegram.", "error");
+      });
   }, [notify, webApp]);
 
   useEffect(() => {
@@ -903,11 +1047,11 @@ export default function App() {
   }, [activeTab, webApp]);
 
   const screens: Record<TabKey, ReactNode> = {
-    today: <TodayScreen onNotify={notify} />,
-    wardrobe: <WardrobeScreen onNotify={notify} />,
+    today: <TodayScreen onNotify={notify} authReady={authReady} />,
+    wardrobe: <WardrobeScreen onNotify={notify} authReady={authReady} />,
     add: <AddScreen onNotify={notify} />,
     designer: <DesignerScreen onNotify={notify} />,
-    favorites: <FavoritesScreen onNotify={notify} />,
+    favorites: <FavoritesScreen onNotify={notify} authReady={authReady} />,
   };
 
   return (

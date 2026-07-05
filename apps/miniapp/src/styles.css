@@ -269,8 +269,8 @@ button:disabled {
 
 .preference-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
   padding-bottom: 2px;
 }
 
@@ -355,6 +355,38 @@ button:disabled {
   display: block;
   aspect-ratio: 4 / 5;
   border-radius: 16px;
+}
+
+.mini-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.chat-reply {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-surface-muted);
+}
+
+.chat-reply p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.favorite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .swatch-denim {

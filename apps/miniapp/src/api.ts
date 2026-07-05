@@ -60,6 +60,7 @@ type ApiOutfit = {
   explanation?: string | null;
   designer_reasoning: Record<string, unknown>;
   is_favorite: boolean;
+  item_ids?: string[];
 };
 
 type OutfitRequestPayload = {
@@ -301,6 +302,7 @@ export async function listWardrobeItems(): Promise<GarmentCard[]> {
         .join(" ")
         .toLowerCase(),
       confidence: Number(item.confidence),
+      status: item.status,
       provenance: "user_processed" as const,
     };
   });
@@ -330,18 +332,48 @@ export async function getWardrobeHealth(): Promise<WardrobeHealth> {
   };
 }
 
+function mapOutfit(outfit: ApiOutfit): OutfitCard {
+  return {
+    id: outfit.id,
+    title: localizeTitle(outfit.title),
+    context: String(outfit.designer_reasoning.source ?? "гардероб"),
+    score: Number(outfit.score),
+    comfort: Number(outfit.comfort_score ?? outfit.score),
+    items: outfit.item_ids ?? [],
+    reason: outfit.explanation ?? "Собрано из вещей вашего гардероба.",
+    favorite: outfit.is_favorite,
+  };
+}
+
 export async function listOutfits(): Promise<OutfitCard[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/outfits`);
   const outfits = await readJson<ApiOutfit[]>(response);
-  return outfits.map((outfit) => ({
-    id: outfit.id,
-    title: outfit.title,
-    context: String(outfit.designer_reasoning.source ?? "Гардероб"),
-    score: Number(outfit.score),
-    comfort: Number(outfit.comfort_score ?? outfit.score),
-    items: [],
-    reason: outfit.explanation ?? "",
-  }));
+  return outfits.map(mapOutfit);
+}
+
+export async function selectOutfit(outfitId: string): Promise<void> {
+  await authenticatedFetch(`${apiBaseUrl}/outfits/${outfitId}/select`, { method: "POST" });
+  await authenticatedFetch(`${apiBaseUrl}/outfits/${outfitId}/wear`, { method: "POST" });
+}
+
+export async function favoriteOutfit(outfitId: string): Promise<OutfitCard> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/outfits/${outfitId}/favorite`, { method: "POST" });
+  return mapOutfit(await readJson<ApiOutfit>(response));
+}
+
+export async function recommendWithAnchors(anchorItemIds: string[], prompt?: string): Promise<OutfitCard[]> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/outfits/recommend-with-anchors`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt ?? "Собери образ вокруг выбранных вещей",
+      anchor_item_ids: anchorItemIds,
+      weather: {},
+      variants_count: 1,
+    }),
+  });
+  const outfits = await readJson<ApiOutfit[]>(response);
+  return outfits.map(mapOutfit);
 }
 
 export async function getWeather(latitude: number, longitude: number): Promise<WeatherSummary> {

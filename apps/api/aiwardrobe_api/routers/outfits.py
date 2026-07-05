@@ -7,6 +7,7 @@ from aiwardrobe_core.schemas import OutfitRead, OutfitRequest
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from aiwardrobe_api.dependencies import CurrentUser, DbSession
 
@@ -22,6 +23,7 @@ def outfit_read_model(outfit: OutfitCard) -> OutfitRead:
         explanation=outfit.explanation,
         designer_reasoning=dict(outfit.designer_reasoning),
         is_favorite=outfit.is_favorite,
+        item_ids=[link.item_id for link in outfit.items],
     )
 
 
@@ -49,7 +51,11 @@ async def recommend_with_anchors(
 @router.get("", response_model=list[OutfitRead])
 async def list_outfits(user_id: UUID = CurrentUser, session: AsyncSession = DbSession) -> list[OutfitRead]:
     result = await session.execute(
-        select(OutfitCard).where(OutfitCard.user_id == user_id).order_by(OutfitCard.created_at.desc()).limit(100)
+        select(OutfitCard)
+        .options(selectinload(OutfitCard.items))
+        .where(OutfitCard.user_id == user_id)
+        .order_by(OutfitCard.created_at.desc())
+        .limit(100)
     )
     return [outfit_read_model(outfit) for outfit in result.scalars()]
 
@@ -167,13 +173,14 @@ async def create_outfit_recommendations(
         await session.commit()
         return []
 
+    event_note = f" под сценарий «{payload.event_type}»" if payload.event_type else ""
     outfit = OutfitCard(
         user_id=user_id,
-        title=payload.prompt or "Outfit from wardrobe",
-        generation_context={"request_id": str(generation.id), "source": "wardrobe_rules"},
+        title="Образ из вашего гардероба",
+        generation_context={"request_id": str(generation.id), "source": "wardrobe_rules", "prompt": payload.prompt},
         weather_snapshot=payload.weather,
-        designer_reasoning={"source": "persisted_wardrobe", "item_count": len(items)},
-        explanation="Generated from confirmed wardrobe state without sample data.",
+        designer_reasoning={"source": "гардероб", "item_count": len(items)},
+        explanation=f"Собрано из {len(items)} вещей вашего гардероба{event_note}.",
         score=Decimal("75"),
         comfort_score=Decimal("75"),
     )
@@ -182,12 +189,27 @@ async def create_outfit_recommendations(
     for item in items:
         session.add(OutfitItem(outfit_id=outfit.id, item_id=item.id, role=item.category or None))
     await session.commit()
-    await session.refresh(outfit)
-    return [outfit_read_model(outfit)]
+    return [await load_outfit_read(session, user_id, outfit.id)]
+
+
+async def load_outfit_read(session: AsyncSession, user_id: UUID, outfit_id: UUID) -> OutfitRead:
+    result = await session.execute(
+        select(OutfitCard)
+        .options(selectinload(OutfitCard.items))
+        .where(OutfitCard.id == outfit_id, OutfitCard.user_id == user_id)
+    )
+    outfit = result.scalar_one_or_none()
+    if outfit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outfit not found.")
+    return outfit_read_model(outfit)
 
 
 async def load_outfit(session: AsyncSession, user_id: UUID, outfit_id: UUID) -> OutfitCard:
-    result = await session.execute(select(OutfitCard).where(OutfitCard.id == outfit_id, OutfitCard.user_id == user_id))
+    result = await session.execute(
+        select(OutfitCard)
+        .options(selectinload(OutfitCard.items))
+        .where(OutfitCard.id == outfit_id, OutfitCard.user_id == user_id)
+    )
     outfit = result.scalar_one_or_none()
     if outfit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outfit not found.")

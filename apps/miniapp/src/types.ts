@@ -22,6 +22,7 @@ export type GarmentCard = {
   visualIdentifiers?: string[];
   searchText?: string;
   confidence?: number;
+  status?: string;
   provenance: "user_processed" | "external_product_photo" | "generated_reference" | "placeholder";
 };
 
@@ -33,6 +34,7 @@ export type OutfitCard = {
   comfort: number;
   items: string[];
   reason: string;
+  favorite?: boolean;
 };
 
 export type UploadStatus = {
@@ -88,5 +90,8 @@ export type DesignerChatReply = {
   reply: string;
   outfit_id?: string | null;
   outfit_title?: string | null;
+  outfit_explanation?: string | null;
+  outfit_score?: number | null;
+  outfit_item_ids?: string[];
   item_count: number;
 };
