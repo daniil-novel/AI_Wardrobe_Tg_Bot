@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1 - 2026-07-06
+
+Fix broken image uploads in production and make every Mini App control real.
+
+- Fixed the production outage that broke uploads: the DB session dependency returned the session out of its generator, leaking one pooled connection per request until `QueuePool limit reached` took every endpoint down; sessions are now yielded and closed per request (regression test added).
+- Fixed the Mini App auth race: screens checked the token once on mount before Telegram auth finished, so cold opens showed no weather, wardrobe or outfits until a tab switch.
+- Designer chat persists proposed outfits (with item links, explanation and score) and drops hallucinated item ids; the day-scenario box, «Теплее», «Другой» and «Похожий» all go through it.
+- «Выбрать» records select/wear history, hearts persist favorites, «Собрать с выбранными» builds an anchored outfit, favorites shows all outfits with a working «Избранные» tab.
+- The hero outfit renders real item photos; rule-based outfits use Russian titles/explanations instead of echoing the prompt; `OutfitRead` exposes `item_ids`.
+- Geolocation failures fall back to Moscow weather with a hint; preference chips wrap instead of clipping.
+- Designer and outfit-recommendation POSTs are rate-limited in the `ai` bucket; image analysis upgraded to `google/gemini-2.5-pro`.
+- Verified in a real Chromium run against production (initData passed through the official `tgWebAppData` fragment): auth, photo upload → AI card, wardrobe photos and Russian labels, designer tools/chat, favorites — 0 console errors, 0 failed requests.
+
 ## 0.3.0 - 2026-07-05
 
 Production release: deployed to a VPS behind TLS and connected to Telegram (@wwardrobeai_bot).

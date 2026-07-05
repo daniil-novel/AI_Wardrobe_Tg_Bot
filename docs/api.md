@@ -4,11 +4,11 @@ Implemented endpoint groups:
 
 - `/auth`: Telegram initData auth, refresh, logout.
 - `/uploads`: signed upload URL, complete, Telegram file_id, status, retry, delete.
-- `/items`: wardrobe CRUD and item actions.
+- `/items`: wardrobe CRUD and item actions; `GET /items/{id}/image` streams the private photo for authenticated owners.
 - `/looks`: LookCard, favorites and similar generation.
 - `/outfits`: recommendations, prompt generation, anchored generation, rating and selection.
 - `/ai`: image analysis task lifecycle and usage.
-- `/designer`: wardrobe gaps, missing selected items and safe look rating.
+- `/designer`: wardrobe gaps, missing selected items, safe look rating and `POST /designer/chat` — the AI stylist chat that answers in Russian and persists proposed outfits (`outfit_id`, `outfit_item_ids`, explanation, score) built strictly from the user's wardrobe.
 - `/weather`: authenticated Open-Meteo daily summary by latitude/longitude with Redis cache.
 - `/marketplace`: similar item search.
 - `/wishlist`: wishlist CRUD.
