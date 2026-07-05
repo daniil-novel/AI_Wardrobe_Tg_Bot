@@ -9,6 +9,7 @@ Implemented endpoint groups:
 - `/outfits`: recommendations, prompt generation, anchored generation, rating and selection.
 - `/ai`: image analysis task lifecycle and usage.
 - `/designer`: wardrobe gaps, missing selected items and safe look rating.
+- `/weather`: authenticated Open-Meteo daily summary by latitude/longitude with Redis cache.
 - `/marketplace`: similar item search.
 - `/wishlist`: wishlist CRUD.
 - `/style-dna`, `/rules`, `/wardrobe/health`: taste and explainability features.

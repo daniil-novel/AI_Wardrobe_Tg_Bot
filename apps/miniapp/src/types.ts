@@ -15,6 +15,8 @@ export type GarmentCard = {
   season: string;
   role: string;
   temperature: string;
+  color?: string;
+  searchText?: string;
   confidence?: number;
   provenance: "user_processed" | "external_product_photo" | "generated_reference" | "placeholder";
 };
@@ -39,4 +41,23 @@ export type UploadStatus = {
   upload_type?: string | null;
   progress: number;
   result_title?: string | null;
+};
+
+export type WeatherSummary = {
+  temperature_c: number;
+  feels_like_c: number;
+  temperature_min_c: number;
+  temperature_max_c: number;
+  precipitation_probability: number;
+  wind_speed_ms: number;
+  condition: string;
+  summary: string;
+};
+
+export type DesignerToolKey = "gaps" | "anchor" | "purchase" | "rate" | "capsule";
+
+export type DesignerResult = {
+  title: string;
+  summary: string;
+  bullets: string[];
 };

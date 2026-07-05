@@ -1,4 +1,4 @@
-import type { GarmentCard, OutfitCard, UploadStatus } from "./types";
+import type { DesignerResult, DesignerToolKey, GarmentCard, OutfitCard, UploadStatus, WeatherSummary } from "./types";
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: {
@@ -12,7 +12,7 @@ function defaultApiUrl(): string {
     return explicitUrl.replace(/\/$/, "");
   }
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-    return "http://localhost:8010";
+    return "http://localhost:8000";
   }
   return window.location.origin;
 }
@@ -45,6 +45,14 @@ type ApiOutfit = {
   explanation?: string | null;
   designer_reasoning: Record<string, unknown>;
   is_favorite: boolean;
+};
+
+type OutfitRequestPayload = {
+  prompt?: string;
+  event_type?: string;
+  weather?: Record<string, unknown>;
+  variants_count?: number;
+  anchor_item_ids?: string[];
 };
 
 const accessTokenKey = "aiw_access_token";
@@ -139,16 +147,112 @@ export async function deleteUpload(uploadId: string): Promise<void> {
   await readJson<{ id: string; status: string }>(response);
 }
 
+const categoryLabels: Record<string, string> = {
+  top: "верх",
+  bottom: "низ",
+  outerwear: "верхний слой",
+  shoes: "обувь",
+  accessory: "аксессуар",
+  dress: "платье",
+  other: "вещь",
+  unknown: "вещь",
+};
+
+const seasonLabels: Record<string, string> = {
+  winter: "зима",
+  spring: "весна",
+  summer: "лето",
+  autumn: "осень",
+  all_season: "всесезон",
+};
+
+const availabilityLabels: Record<string, string> = {
+  available: "доступно",
+  unavailable: "не доступно",
+  laundry: "в стирке",
+  repair: "в ремонте",
+  unknown: "статус уточнить",
+};
+
+const titleDictionary: Record<string, string> = {
+  black: "чёрный",
+  white: "белый",
+  blue: "синий",
+  navy: "тёмно-синий",
+  gray: "серый",
+  grey: "серый",
+  beige: "бежевый",
+  brown: "коричневый",
+  green: "зелёный",
+  red: "красный",
+  tuxedo: "смокинг",
+  suit: "костюм",
+  herringbone: "в ёлочку",
+  "double-breasted": "двубортный",
+  shirt: "рубашка",
+  coat: "пальто",
+  jacket: "жакет",
+  trousers: "брюки",
+  pants: "брюки",
+  sneakers: "кроссовки",
+  boots: "ботинки",
+};
+
+function localizeToken(value: string, dictionary: Record<string, string>): string {
+  return dictionary[value] ?? value.replace(/_/g, " ");
+}
+
+function localizeTitle(title: string): string {
+  const normalized = title.trim();
+  if (!normalized) {
+    return "Вещь без названия";
+  }
+  if (/[А-Яа-яЁё]/.test(normalized)) {
+    return normalized;
+  }
+  const lower = normalized.toLowerCase();
+  if (lower.includes("double-breasted") && lower.includes("herringbone") && lower.includes("suit")) {
+    return "Двубортный костюм в ёлочку";
+  }
+  if (lower.includes("black") && lower.includes("tuxedo") && lower.includes("suit")) {
+    return "Чёрный смокинг";
+  }
+  const translated = lower
+    .split(/\s+/)
+    .map((word) => localizeToken(word.replace(/[.,]/g, ""), titleDictionary))
+    .join(" ");
+  return translated.charAt(0).toUpperCase() + translated.slice(1);
+}
+
+function imageClassFor(item: ApiGarmentItem): string {
+  const color = String(item.main_color ?? "").toLowerCase();
+  if (color.includes("бел") || color.includes("white")) {
+    return "swatch-white";
+  }
+  if (color.includes("корич") || color.includes("brown") || color.includes("beige") || color.includes("беж")) {
+    return "swatch-brown";
+  }
+  if (color.includes("black") || color.includes("чёр") || color.includes("чер") || item.category === "outerwear") {
+    return "swatch-black";
+  }
+  return "swatch-denim";
+}
+
 export async function listWardrobeItems(): Promise<GarmentCard[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/items`);
   const items = await readJson<ApiGarmentItem[]>(response);
   return items.map((item) => ({
     id: item.id,
-    title: item.title,
-    imageClass: "swatch-denim",
-    season: item.season.join(" · ") || "all season",
-    role: item.category,
-    temperature: item.availability_status,
+    title: localizeTitle(item.title),
+    imageClass: imageClassFor(item),
+    season: item.season.map((season) => localizeToken(String(season), seasonLabels)).join(" · ") || "сезон уточнить",
+    role: localizeToken(item.category, categoryLabels),
+    temperature: localizeToken(item.availability_status, availabilityLabels),
+    color: item.main_color ?? undefined,
+    searchText: [item.title, localizeTitle(item.title), item.category, item.main_color, item.availability_status]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase(),
     confidence: Number(item.confidence),
     provenance: "user_processed",
   }));
@@ -166,4 +270,92 @@ export async function listOutfits(): Promise<OutfitCard[]> {
     items: [],
     reason: outfit.explanation ?? "",
   }));
+}
+
+export async function getWeather(latitude: number, longitude: number): Promise<WeatherSummary> {
+  const params = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+  });
+  const response = await authenticatedFetch(`${apiBaseUrl}/weather?${params.toString()}`);
+  return readJson<WeatherSummary>(response);
+}
+
+export async function recommendOutfit(payload: OutfitRequestPayload): Promise<OutfitCard[]> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/outfits/from-prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      variants_count: 3,
+      anchor_item_ids: [],
+      weather: {},
+      ...payload,
+    }),
+  });
+  const outfits = await readJson<ApiOutfit[]>(response);
+  return outfits.map((outfit) => ({
+    id: outfit.id,
+    title: localizeTitle(outfit.title),
+    context: String(outfit.designer_reasoning.source ?? "гардероб"),
+    score: Number(outfit.score),
+    comfort: Number(outfit.comfort_score ?? outfit.score),
+    items: [],
+    reason: outfit.explanation ?? "Собрано из вещей вашего гардероба.",
+  }));
+}
+
+export async function runDesignerTool(tool: DesignerToolKey): Promise<DesignerResult> {
+  if (tool === "gaps") {
+    const response = await authenticatedFetch(`${apiBaseUrl}/designer/wardrobe-gaps`, { method: "POST" });
+    const payload = await readJson<{ missing_items: Array<{ title: string; reason?: string; priority?: string }> }>(
+      response,
+    );
+    const bullets = payload.missing_items.map((item) =>
+      [localizeTitle(item.title), item.reason, item.priority].filter(Boolean).join(" · "),
+    );
+    return {
+      title: "Чего не хватает",
+      summary: bullets.length ? "Нашла пробелы, которые сильнее всего ограничивают образы." : "Явных пробелов нет.",
+      bullets: bullets.length ? bullets : ["Добавьте больше вещей, чтобы расчёт стал точнее."],
+    };
+  }
+
+  if (tool === "rate") {
+    const response = await authenticatedFetch(`${apiBaseUrl}/designer/rate-look`, { method: "POST" });
+    const payload = await readJson<{ safety_note?: string }>(response);
+    return {
+      title: "Оценка образа",
+      summary: "Можно разобрать фото образа безопасно: только одежда, сочетания и уместность.",
+      bullets: [payload.safety_note ?? "Лицо, тело и личность не оцениваются."],
+    };
+  }
+
+  const localCopy: Record<DesignerToolKey, DesignerResult> = {
+    gaps: {
+      title: "Чего не хватает",
+      summary: "Проверяю сезонность, события и роли вещей.",
+      bullets: ["Нужны данные гардероба."],
+    },
+    anchor: {
+      title: "Собрать с вещью",
+      summary: "Выберите вещь в гардеробе, затем задайте погоду и событие.",
+      bullets: ["Будет использован endpoint рекомендаций с anchor_item_ids."],
+    },
+    purchase: {
+      title: "Стоит ли покупать",
+      summary: "Покупку стоит проверять по дублям, сценариям носки и совместимости.",
+      bullets: ["Для точного расчёта добавьте ссылку или описание вещи."],
+    },
+    rate: {
+      title: "Оценка образа",
+      summary: "Разбор работает только по одежде и сочетаниям.",
+      bullets: ["Лицо, тело и личность не оцениваются."],
+    },
+    capsule: {
+      title: "Капсула",
+      summary: "Капсула собирается из сценария, погоды, длительности и ограничений багажа.",
+      bullets: ["Для поездки укажите город, даты и дресс-код."],
+    },
+  };
+  return localCopy[tool];
 }

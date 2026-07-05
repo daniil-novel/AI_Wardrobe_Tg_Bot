@@ -35,6 +35,7 @@ def test_core_endpoint_groups_are_available() -> None:
         "/style-dna": 401,
         "/wardrobe/health": 401,
         "/wishlist": 401,
+        "/weather?latitude=55.75&longitude=37.62": 401,
         "/billing/plans": 200,
         "/ai/usage": 401,
     }

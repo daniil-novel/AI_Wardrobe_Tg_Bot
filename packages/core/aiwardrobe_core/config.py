@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model_image: str = "google/gemini-pro-latest"
-    openrouter_model_text: str = "google/gemini-pro-latest"
+    openrouter_model_image: str = "google/gemini-2.5-pro"
+    openrouter_model_text: str = "google/gemini-2.5-pro"
     ai_daily_budget_usd: float = 20
 
     s3_endpoint_url: str = "http://minio:9000"

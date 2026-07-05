@@ -22,6 +22,7 @@ from aiwardrobe_api.routers import (
     privacy,
     style,
     uploads,
+    weather,
     wishlist,
 )
 
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
         wishlist.router,
         style.router,
         privacy.router,
+        weather.router,
         billing.router,
     ):
         app.include_router(router)
@@ -91,6 +93,7 @@ def create_app() -> FastAPI:
                 "marketplace",
                 "wishlist",
                 "style-dna",
+                "weather",
                 "privacy",
                 "billing",
             ],

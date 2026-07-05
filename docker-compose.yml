@@ -92,8 +92,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-with-a-long-random-secret}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
-      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
+      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-2.5-pro}
+      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-2.5-pro}
       S3_ENDPOINT_URL: http://minio:9000
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
@@ -128,8 +128,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-pro-latest}
-      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-pro-latest}
+      OPENROUTER_MODEL_IMAGE: ${OPENROUTER_MODEL_IMAGE:-google/gemini-2.5-pro}
+      OPENROUTER_MODEL_TEXT: ${OPENROUTER_MODEL_TEXT:-google/gemini-2.5-pro}
       S3_ENDPOINT_URL: http://minio:9000
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}

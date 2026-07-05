@@ -1,20 +1,38 @@
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { CloudRain, Heart, Loader2, Search, Sparkles, Upload } from "lucide-react";
+import {
+  Bot,
+  CloudRain,
+  CloudSun,
+  Heart,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  Search,
+  Send,
+  Sparkles,
+  Thermometer,
+  Umbrella,
+  Upload,
+  Wind,
+} from "lucide-react";
 
 import {
   authenticateWithTelegram,
   deleteUpload,
+  getWeather,
   getUploadStatus,
   hasAccessToken,
   listOutfits,
   listWardrobeItems,
+  recommendOutfit,
   retryUpload,
+  runDesignerTool,
   uploadPhoto,
 } from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
 import { quickScenarios } from "./data";
 import { getTelegramWebApp } from "./telegram";
-import type { GarmentCard, OutfitCard, TabKey, UploadStatus } from "./types";
+import type { DesignerResult, DesignerToolKey, GarmentCard, OutfitCard, TabKey, UploadStatus, WeatherSummary } from "./types";
 import "./styles.css";
 
 type Notify = (message: string, tone?: "info" | "success" | "warning" | "error") => void;
@@ -30,15 +48,21 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
   const [outfit, setOutfit] = useState<OutfitCard | null>(null);
   const [wardrobeItems, setWardrobeItems] = useState<GarmentCard[]>([]);
   const [selectedScenario, setSelectedScenario] = useState("Много метро");
+  const [scenarioText, setScenarioText] = useState("Много метро, вечером короткая встреча, хочу не замёрзнуть.");
+  const [weatherPreference, setWeatherPreference] = useState("мерзну, лучше теплее");
+  const [weather, setWeather] = useState<WeatherSummary | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
 
   useEffect(() => {
     if (!hasAccessToken()) {
       return;
     }
-    void Promise.all([listOutfits(), listWardrobeItems()])
-      .then(([outfits, items]) => {
+    void Promise.all([listOutfits(), listWardrobeItems(), getWeather(55.7558, 37.6173).catch(() => null)])
+      .then(([outfits, items, weatherSummary]) => {
         setOutfit(outfits[0] ?? null);
         setWardrobeItems(items);
+        setWeather(weatherSummary);
       })
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить состояние.", "error");
@@ -69,6 +93,67 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
     onNotify("Запрос нового варианта отправляется через backend рекомендации.", "info");
   }
 
+  function loadWeatherByLocation() {
+    if (!hasAccessToken()) {
+      onNotify("Для точной погоды откройте Mini App внутри Telegram и войдите.", "warning");
+      return;
+    }
+    if (!navigator.geolocation) {
+      onNotify("Геолокация недоступна в этом браузере.", "warning");
+      return;
+    }
+    setWeatherLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void getWeather(position.coords.latitude, position.coords.longitude)
+          .then((summary) => {
+            setWeather(summary);
+            onNotify("Погода обновлена по текущей геолокации.", "success");
+          })
+          .catch((error: unknown) => {
+            onNotify(error instanceof Error ? error.message : "Не удалось получить погоду.", "error");
+          })
+          .finally(() => setWeatherLoading(false));
+      },
+      () => {
+        setWeatherLoading(false);
+        onNotify("Не удалось получить геолокацию. Можно описать погоду вручную.", "warning");
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 900000 },
+    );
+  }
+
+  async function submitScenario() {
+    const prompt = scenarioText.trim();
+    if (!prompt) {
+      onNotify("Опишите сценарий дня: куда идёте, сколько ходить и насколько тепло хочется.", "warning");
+      return;
+    }
+    if (!hasAccessToken()) {
+      onNotify("Сценарий сохранён локально. Для подбора из гардероба нужен вход через Telegram.", "warning");
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const outfits = await recommendOutfit({
+        prompt,
+        event_type: selectedScenario,
+        weather: {
+          summary: weather?.summary,
+          temperature_c: weather?.temperature_c,
+          feels_like_c: weather?.feels_like_c,
+          user_preference: weatherPreference,
+        },
+      });
+      setOutfit(outfits[0] ?? null);
+      onNotify(outfits.length ? "Собрала рекомендацию под ваш день." : "Пока не хватает вещей для образа.", "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось собрать образ.", "error");
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   return (
     <section className="screen-stack">
       <header className="topline">
@@ -82,11 +167,62 @@ function TodayScreen({ onNotify }: { onNotify: Notify }) {
       </header>
 
       <article className="weather-card">
-        <CloudRain size={22} />
+        {weather ? <CloudSun size={22} /> : <CloudRain size={22} />}
         <div>
-          <strong>{outfit?.context ?? "Контекст дня"}</strong>
-          <span>Погодный коридор на весь день</span>
+          <strong>{weather ? weather.summary : "Погода ещё не уточнена"}</strong>
+          <span>{weather ? "точная сводка через погодный API" : "Добавьте гео или опишите погоду в сценарии"}</span>
         </div>
+        <button type="button" onClick={loadWeatherByLocation} disabled={weatherLoading}>
+          <MapPin size={16} />
+          {weatherLoading ? "..." : "Гео"}
+        </button>
+      </article>
+
+      {weather ? (
+        <div className="weather-metrics" aria-label="Погодная сводка">
+          <span>
+            <Thermometer size={15} /> {Math.round(weather.temperature_c)}°C, ощущается{" "}
+            {Math.round(weather.feels_like_c)}°C
+          </span>
+          <span>
+            <Umbrella size={15} /> осадки {weather.precipitation_probability}%
+          </span>
+          <span>
+            <Wind size={15} /> ветер {Math.round(weather.wind_speed_ms)} м/с
+          </span>
+        </div>
+      ) : null}
+
+      <article className="scenario-chat">
+        <div className="chat-head">
+          <MessageCircle size={20} />
+          <div>
+            <strong>Сценарий дня</strong>
+            <span>Опишите планы и как вы чувствуете погоду</span>
+          </div>
+        </div>
+        <textarea
+          value={scenarioText}
+          onChange={(event) => setScenarioText(event.target.value)}
+          rows={3}
+          placeholder="Например: офис, потом прогулка 40 минут, хочу выглядеть спокойно и не мёрзнуть."
+        />
+        <div className="preference-row">
+          {["мерзну, лучше теплее", "по погоде", "быстро жарко, легче"].map((preference) => (
+            <button
+              className={weatherPreference === preference ? "active" : ""}
+              key={preference}
+              type="button"
+              onClick={() => setWeatherPreference(preference)}
+            >
+              {preference}
+            </button>
+          ))}
+        </div>
+        <button className="chat-submit" type="button" disabled={chatBusy} onClick={submitScenario}>
+          {chatBusy ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+          Подобрать образ
+        </button>
       </article>
 
       {outfit ? (
@@ -167,22 +303,23 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
   }, [onNotify]);
 
   const visibleGarments = remoteGarments.filter((item) => {
+    const normalizedChip = activeChip.toLowerCase();
     const byChip =
       activeChip === "Все" ||
-      item.role.includes(activeChip) ||
-      item.season.includes(activeChip) ||
-      item.title.includes(activeChip);
-    const bySearch = !query || item.title.toLowerCase().includes(query.toLowerCase());
+      item.role.toLowerCase().includes(normalizedChip) ||
+      item.season.toLowerCase().includes(normalizedChip) ||
+      item.title.toLowerCase().includes(normalizedChip);
+    const bySearch = !query || (item.searchText ?? item.title.toLowerCase()).includes(query.toLowerCase());
     return byChip && bySearch;
   });
 
   function toggleItem(item: GarmentCard) {
     setSelectedItems((current) => {
       const next = new Set(current);
-      if (next.has(item.title)) {
-        next.delete(item.title);
+      if (next.has(item.id)) {
+        next.delete(item.id);
       } else {
-        next.add(item.title);
+        next.add(item.id);
       }
       return next;
     });
@@ -227,7 +364,7 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
       </div>
       <article className="health-card">
         <div>
-          <span className="eyebrow">Wardrobe Health</span>
+          <span className="eyebrow">Здоровье гардероба</span>
           <h2>62%</h2>
         </div>
         <p>Не хватает дождевой обуви и одного спокойного верхнего слоя.</p>
@@ -239,7 +376,7 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
               item={item}
               key={item.id}
               selectable
-              selected={selectedItems.has(item.title)}
+              selected={selectedItems.has(item.id)}
               onClick={() => toggleItem(item)}
             />
           ))}
@@ -251,7 +388,7 @@ function WardrobeScreen({ onNotify }: { onNotify: Notify }) {
         className="wide-primary"
         type="button"
         disabled={selectedItems.size === 0}
-        onClick={() => onNotify(`Собираю образ с вещами: ${Array.from(selectedItems).join(", ")}.`, "success")}
+        onClick={() => onNotify(`Собираю образ с выбранными вещами: ${selectedItems.size}.`, "success")}
       >
         Собрать с выбранными
       </button>
@@ -393,20 +530,77 @@ function AddScreen({ onNotify }: { onNotify: Notify }) {
       ) : (
         <SmartCard icon="camera" title="Фото ожидается" text="Выберите режим и загрузите изображение" />
       )}
-      <SmartCard icon="archive" title="Privacy receipt" text="OpenRouter · original saved · no training" />
+      <SmartCard icon="archive" title="Приватность" text="OpenRouter · оригинал сохранён · без обучения" />
     </section>
   );
 }
 
 function DesignerScreen({ onNotify }: { onNotify: Notify }) {
-  const [activeTool, setActiveTool] = useState("Чего не хватает?");
+  const [activeTool, setActiveTool] = useState<DesignerToolKey>("gaps");
+  const [result, setResult] = useState<DesignerResult>({
+    title: "Чего не хватает",
+    summary: "Проверим пробелы гардероба и превратим их в понятные действия.",
+    bullets: ["Нажмите на инструмент выше, чтобы получить разбор."],
+  });
+  const [busy, setBusy] = useState(false);
   const tools = [
-    ["layers", "Чего не хватает?", "Wardrobe gaps · missing item cards"],
-    ["bot", "Собрать с вещью", "Anchors · weather · event"],
-    ["search", "Стоит ли покупать?", "Duplicate risk · compatibility"],
-    ["camera", "Оценить образ", "Сначала что работает, затем улучшения"],
-    ["calendar", "Капсула", "Неделя · поездка · сезон"],
+    ["gaps", "layers", "Чего не хватает?", "Пробелы гардероба и приоритеты"],
+    ["anchor", "bot", "Собрать с вещью", "Опорная вещь · погода · событие"],
+    ["purchase", "search", "Стоит ли покупать?", "Дубли · совместимость · сценарии"],
+    ["rate", "camera", "Оценить образ", "Что работает и что улучшить"],
+    ["capsule", "calendar", "Капсула", "Неделя · поездка · сезон"],
   ] as const;
+
+  function offlineDesignerResult(tool: DesignerToolKey, title: string): DesignerResult {
+    const copy: Record<DesignerToolKey, DesignerResult> = {
+      gaps: {
+        title,
+        summary: "Для точного расчёта нужен гардероб, но базово стоит закрыть погодные и сезонные пробелы.",
+        bullets: ["Проверьте дождевую обувь.", "Добавьте спокойный верхний слой.", "Отметьте вещи в стирке."],
+      },
+      anchor: {
+        title,
+        summary: "Выберите ключевую вещь и задайте событие, погоду и желаемую теплоту.",
+        bullets: ["Опорная вещь не должна спорить с обувью.", "Если мерзнете, добавляйте слой даже летом."],
+      },
+      purchase: {
+        title,
+        summary: "Покупку стоит оценивать не по красоте, а по реальным сценариям носки.",
+        bullets: ["Есть ли похожая вещь?", "С чем минимум 3 раза надеть?", "Подходит ли к вашей погодной привычке?"],
+      },
+      rate: {
+        title,
+        summary: "Разбор должен объяснять, что уже работает, а затем давать одно-два улучшения.",
+        bullets: ["Оценивается только одежда.", "Лицо, тело и личность не анализируются."],
+      },
+      capsule: {
+        title,
+        summary: "Капсула собирается от расписания: дни, погода, дресс-код и сколько можно нести.",
+        bullets: ["Начните с обуви.", "Добавьте повторяемый верх.", "Оставьте один акцент."],
+      },
+    };
+    return copy[tool];
+  }
+
+  async function selectTool(tool: DesignerToolKey, title: string) {
+    setActiveTool(tool);
+    setBusy(true);
+    try {
+      const fallback = offlineDesignerResult(tool, title);
+      const nextResult = hasAccessToken() ? await runDesignerTool(tool).catch(() => fallback) : fallback;
+      setResult(nextResult);
+      onNotify(`${title}: разбор готов.`, "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось выполнить инструмент.", "error");
+      setResult({
+        title,
+        summary: "Инструмент временно недоступен, но сценарий сохранён для повторного запуска.",
+        bullets: ["Проверьте авторизацию, API и worker queue."],
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="screen-stack">
@@ -414,24 +608,37 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
         <h1>Дизайнер</h1>
       </header>
       <div className="designer-list">
-        {tools.map(([icon, title, text]) => (
+        {tools.map(([tool, icon, title, text]) => (
           <SmartCard
-            active={activeTool === title}
+            active={activeTool === tool}
             icon={icon}
             title={title}
             text={text}
             key={title}
-            onClick={() => {
-              setActiveTool(title);
-              onNotify(`${title}: запрос подготовлен.`, "success");
-            }}
+            onClick={() => void selectTool(tool, title)}
           />
         ))}
       </div>
+      <article className="designer-result">
+        <div className="result-head">
+          <Bot size={20} />
+          <div>
+            <span className="eyebrow">Результат дизайнера</span>
+            <h2>{busy ? "Считаю..." : result.title}</h2>
+          </div>
+          {busy ? <Loader2 className="spin" size={20} /> : null}
+        </div>
+        <p>{result.summary}</p>
+        <ul>
+          {result.bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
+        </ul>
+      </article>
       <article className="style-dna">
-        <span className="eyebrow">Style DNA</span>
-        <h2>casual · minimal · neutral</h2>
-        <p>{activeTool} · следующий API-вызов будет выполняться через workers.</p>
+        <span className="eyebrow">Профиль стиля</span>
+        <h2>кэжуал · минимализм · нейтральная база</h2>
+        <p>Предпочтения можно уточнять через сценарий дня: теплее, легче, формальнее или свободнее.</p>
         <div className="dna-bars">
           <span style={{ width: "76%" }} />
           <span style={{ width: "58%" }} />
@@ -443,7 +650,7 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
 }
 
 function FavoritesScreen({ onNotify }: { onNotify: Notify }) {
-  const tabs = ["Луки", "Аутфиты", "Wishlist", "Moodboard"];
+  const tabs = ["Луки", "Образы", "Хотелки", "Мудборд"];
   const [activeFavoriteTab, setActiveFavoriteTab] = useState(tabs[0]);
   const [favorite, setFavorite] = useState(true);
   const [outfits, setOutfits] = useState<OutfitCard[]>([]);

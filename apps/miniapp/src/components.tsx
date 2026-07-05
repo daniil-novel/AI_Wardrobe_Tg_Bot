@@ -52,7 +52,7 @@ export function BottomNav({
   );
 }
 
-export function ScoreBadge({ score, label = "score" }: { score: number; label?: string }) {
+export function ScoreBadge({ score, label = "оценка" }: { score: number; label?: string }) {
   return (
     <span className="score-badge">
       {score}% <small>{label}</small>
@@ -112,6 +112,8 @@ export function InteractiveGarmentTile({
       tabIndex={onClick ? 0 : undefined}
     >
       <div className={`garment-image ${item.imageClass}`}>
+        <Shirt className="garment-icon" size={36} strokeWidth={1.8} />
+        <span>{item.role}</span>
         {selectable || selected ? <Check className="select-check" size={18} /> : null}
       </div>
       <div className="garment-meta">
@@ -120,7 +122,10 @@ export function InteractiveGarmentTile({
           <p>
             {item.season} · {item.role}
           </p>
-          <span>{item.temperature}</span>
+          <span>
+            {item.temperature}
+            {item.color ? ` · ${item.color}` : ""}
+          </span>
         </div>
         <ConfidenceBadge value={item.confidence} />
       </div>

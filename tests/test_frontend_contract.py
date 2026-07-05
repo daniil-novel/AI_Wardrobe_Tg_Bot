@@ -36,6 +36,17 @@ def test_miniapp_upload_and_buttons_are_wired_to_actions() -> None:
     assert "FormData" in api_file
 
 
+def test_miniapp_has_weather_and_scenario_chat() -> None:
+    app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
+    api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
+
+    for expected in ("Сценарий дня", "Подобрать образ", "getWeather", "recommendOutfit"):
+        assert expected in app_file or expected in api_file
+
+    assert "/weather" in api_file
+    assert "/outfits/from-prompt" in api_file
+
+
 def test_miniapp_does_not_use_demo_wardrobe_as_runtime_fallback() -> None:
     app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
     api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")

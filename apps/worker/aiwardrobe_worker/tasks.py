@@ -364,6 +364,130 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
     return result
 
 
+DESIGNER_CHAT_SCHEMA_PROMPT = (
+    "Ты — персональный AI-стилист в приложении цифрового гардероба. Отвечай тепло и по делу, на русском. "
+    "Учитывай гардероб пользователя, погоду и его личные предпочтения (например, если человек мерзнет — "
+    "предлагай теплее, чем требует погода). Верни ТОЛЬКО JSON-объект с полями: "
+    "reply (string, твой ответ пользователю на русском, 1-4 предложения), "
+    "outfit (null, если образ не нужен, иначе объект: title (string, название образа на русском), "
+    "explanation (string, почему образ работает, на русском), score (number 0-100), "
+    "comfort_score (number 0-100), item_ids (array of strings — ТОЛЬКО id вещей из списка гардероба)). "
+    "Не выдумывай id. Никогда не оценивай лицо, тело или внешность."
+)
+
+
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=2)
+def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.openrouter_api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is required for designer chat.")
+
+    message = str(payload.get("message", "")).strip()
+    if not message:
+        raise ValueError("Designer chat message is required.")
+
+    async def run() -> dict[str, Any]:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                select(GarmentItem)
+                .where(GarmentItem.user_id == UUID(user_id), GarmentItem.deleted_at.is_(None))
+                .order_by(GarmentItem.updated_at.desc())
+                .limit(40)
+            )
+            items = list(result.scalars())
+            wardrobe_payload = [
+                {
+                    "id": str(item.id),
+                    "title": item.title,
+                    "category": item.category,
+                    "season": item.season,
+                    "color": item.main_color,
+                }
+                for item in items
+            ]
+
+            context_lines = [f"Гардероб пользователя ({len(items)} вещей): {wardrobe_payload}"]
+            if payload.get("weather_context"):
+                context_lines.append(f"Погода сегодня: {payload['weather_context']}")
+            if payload.get("preferences"):
+                context_lines.append(f"Личные предпочтения пользователя: {payload['preferences']}")
+            if payload.get("scenario"):
+                context_lines.append(f"Сценарий дня: {payload['scenario']}")
+            history = payload.get("history") or []
+            for entry in history[-8:]:
+                role = "Пользователь" if entry.get("role") == "user" else "Стилист"
+                context_lines.append(f"{role} ранее: {entry.get('content', '')}")
+
+            prompt = (
+                DESIGNER_CHAT_SCHEMA_PROMPT
+                + "\n\n"
+                + "\n".join(context_lines)
+                + f"\n\nСообщение пользователя: {message}"
+            )
+            generated = await LlmGateway(settings).generate_text_json(prompt, "DesignerChat")
+
+            reply = str(generated.get("reply") or "Расскажите чуть подробнее, что планируете сегодня?")
+            outfit_data = generated.get("outfit")
+            outfit_id: str | None = None
+            outfit_title: str | None = None
+            if isinstance(outfit_data, dict) and items:
+                selected_ids = {
+                    UUID(str(item_id))
+                    for item_id in outfit_data.get("item_ids", [])
+                    if isinstance(item_id, str) and item_id
+                }
+                selected_items = [item for item in items if item.id in selected_ids]
+                if selected_items:
+                    outfit = OutfitCard(
+                        user_id=UUID(user_id),
+                        title=str(outfit_data.get("title") or "Образ дня"),
+                        generation_context={
+                            "source": "designer_chat",
+                            "scenario": payload.get("scenario"),
+                            "weather": payload.get("weather_context"),
+                        },
+                        designer_reasoning={"provider": "openrouter", "selected_item_count": len(selected_items)},
+                        explanation=str(outfit_data.get("explanation") or ""),
+                        score=Decimal(str(outfit_data.get("score") or "75")),
+                        comfort_score=Decimal(
+                            str(outfit_data.get("comfort_score") or outfit_data.get("score") or "75")
+                        ),
+                    )
+                    session.add(outfit)
+                    await session.flush()
+                    for item in selected_items:
+                        session.add(OutfitItem(outfit_id=outfit.id, item_id=item.id, role=item.category))
+                    outfit_id = str(outfit.id)
+                    outfit_title = outfit.title
+            session.add(
+                AiRequest(
+                    user_id=UUID(user_id),
+                    task_id=UUID(outfit_id) if outfit_id else UUID(user_id),
+                    model=settings.openrouter_model_text,
+                    request_type="designer_chat",
+                    status=ProcessingStatus.COMPLETED.value,
+                    cost_usd=Decimal("0"),
+                )
+            )
+            await session.commit()
+            return {
+                "reply": reply,
+                "outfit_id": outfit_id,
+                "outfit_title": outfit_title,
+                "item_count": len(items),
+            }
+
+    logger.info("Designer chat for user hash %s", hash_identifier(user_id))
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Designer chat completed",
+        extra={"user_id_hash": hash_identifier(user_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
+    )
+    return result
+
+
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def send_notification(self: Any, telegram_id: int, text: str) -> dict[str, Any]:
     settings = get_settings()

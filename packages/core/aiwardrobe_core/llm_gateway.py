@@ -14,15 +14,17 @@ class LlmGatewayError(RuntimeError):
 GARMENT_ANALYSIS_SCHEMA_PROMPT = (
     "Return ONLY a JSON object with exactly these fields: "
     'image_type (string, one of "item", "look", "screenshot", "other"), '
-    "title (string, short item name), "
-    "category (string, e.g. top/bottom/outerwear/shoes/accessory/dress), "
-    "description (string, 1-2 sentences about the garment only), "
+    "title (string, short item name IN RUSSIAN, e.g. «Синяя футболка»), "
+    'category (string, EXACTLY one of "top", "bottom", "outerwear", "shoes", "accessory", "dress", "other"), '
+    "description (string IN RUSSIAN, 1-2 sentences about the garment only), "
     'season (array of strings from "winter", "spring", "summer", "autumn", "all_season"), '
-    "main_color (string), "
-    "style_archetype (array of strings, e.g. casual/classic/sport/street), "
-    "designer_attributes (object with any of fit, fabric, pattern, neckline, length as strings), "
+    "main_color (string IN RUSSIAN, e.g. «синий»), "
+    'style_archetype (array of strings from "casual", "classic", "sport", "street", "business", "evening"), '
+    "designer_attributes (object with any of fit, fabric, pattern, neckline, length as RUSSIAN strings), "
     "confidence (number between 0 and 1), "
-    "designer_reasoning (string, why the item works and how to style it)."
+    "designer_reasoning (string IN RUSSIAN: why the item works and how to style it). "
+    "All free-text values must be in Russian; category, season and style_archetype must use "
+    "the exact English tokens listed above."
 )
 
 
