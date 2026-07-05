@@ -1,16 +1,21 @@
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 from aiwardrobe_core.auth_service import ensure_user_exists
-from aiwardrobe_core.db import get_session
+from aiwardrobe_core.db import get_session_factory
 from aiwardrobe_core.security import decode_access_token
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def get_db_session() -> AsyncSession:
-    async for session in get_session():
-        return session
-    raise RuntimeError("Database session was not yielded.")
+async def get_db_session() -> AsyncIterator[AsyncSession]:
+    """Yield-style dependency so FastAPI closes the session and returns the connection to the pool.
+
+    Returning the session out of the generator (the previous implementation) leaked one pooled
+    connection per request until GC, which exhausted the pool under normal Mini App traffic.
+    """
+    async with get_session_factory()() as session:
+        yield session
 
 
 def get_current_user_id(authorization: str | None = Header(default=None)) -> UUID:
