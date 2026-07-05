@@ -157,31 +157,39 @@ def transfer_telegram_upload(self: Any, upload_id: str) -> dict[str, Any]:
             upload = result.scalar_one_or_none()
             if upload is None:
                 raise ValueError("Upload not found.")
-            if upload.original_image_id is not None or upload.status in {
-                ProcessingStatus.QUEUED.value,
-                ProcessingStatus.PROCESSING.value,
-                ProcessingStatus.COMPLETED.value,
-            }:
+            if upload.original_image_id is not None or upload.status == ProcessingStatus.COMPLETED.value:
                 return {"upload_id": upload_id, "status": upload.status, "skipped": "already_transferred"}
             if not upload.telegram_file_id:
                 await fail_upload(upload, "missing_telegram_file", "Upload has no Telegram file id.", session)
                 raise Ignore()
 
             api_base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                file_info = await client.get(f"{api_base}/getFile", params={"file_id": upload.telegram_file_id})
-                file_info.raise_for_status()
-                file_path = file_info.json().get("result", {}).get("file_path")
-                if not file_path:
-                    await fail_upload(
-                        upload, "telegram_file_unavailable", "Telegram did not return file path.", session
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    file_info = await client.get(f"{api_base}/getFile", params={"file_id": upload.telegram_file_id})
+                    file_info.raise_for_status()
+                    file_path = file_info.json().get("result", {}).get("file_path")
+                    if not file_path:
+                        await fail_upload(
+                            upload, "telegram_file_unavailable", "Telegram did not return file path.", session
+                        )
+                        raise Ignore()
+                    file_response = await client.get(
+                        f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
                     )
-                    raise Ignore()
-                file_response = await client.get(
-                    f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
-                )
-                file_response.raise_for_status()
-                content = file_response.content
+                    file_response.raise_for_status()
+                    content = file_response.content
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500:
+                    # Client errors (bad or expired file id) never recover; do not burn retries.
+                    await fail_upload(
+                        upload,
+                        "telegram_file_unavailable",
+                        f"Telegram file API returned {exc.response.status_code}.",
+                        session,
+                    )
+                    raise Ignore() from exc
+                raise
 
             try:
                 content_type = validate_image_content(

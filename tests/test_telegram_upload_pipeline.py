@@ -149,6 +149,30 @@ def test_transfer_task_moves_telegram_file_to_storage(monkeypatch: pytest.Monkey
     assert stored["content_type"] == "image/jpeg"
 
 
+def test_transfer_task_marks_upload_failed_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    from celery.exceptions import Ignore
+
+    class FakeHttp400Client(FakeHttpClient):
+        async def get(self, url: str, params: dict[str, Any] | None = None) -> FakeResponse:
+            request = httpx.Request("GET", url)
+            response = httpx.Response(400, request=request)
+            raise httpx.HTTPStatusError("bad file id", request=request, response=response)
+
+    upload = make_telegram_upload()
+    session = FakeSession(upload)
+
+    monkeypatch.setattr("aiwardrobe_worker.tasks.get_settings", lambda: Settings(telegram_bot_token="123:abc"))
+    monkeypatch.setattr("aiwardrobe_worker.tasks.get_session_factory", lambda: lambda: session)
+    monkeypatch.setattr("aiwardrobe_worker.tasks.httpx.AsyncClient", FakeHttp400Client)
+
+    with pytest.raises(Ignore):
+        transfer_telegram_upload.run(str(upload.id))
+
+    assert upload.status == ProcessingStatus.FAILED.value
+    assert upload.error_code == "telegram_file_unavailable"
+
+
 def test_transfer_task_skips_already_transferred_upload(monkeypatch: pytest.MonkeyPatch) -> None:
     upload = make_telegram_upload()
     upload.original_image_id = uuid4()
