@@ -26,7 +26,7 @@ services:
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
 
   api:
-    ports: !reset
+    ports: !override
       - "${API_HOST_PORT:-127.0.0.1:8010}:8000"
     environment:
       APP_ENV: production
