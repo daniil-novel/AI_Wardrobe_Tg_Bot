@@ -7,6 +7,7 @@
 - Add staging load/chaos/security pipelines before GA rollout.
 - Behind the shared TLS reverse proxy the API sees only loopback client addresses, so unauthenticated rate limiting collapses to one bucket; enable PROXY protocol or a dedicated ingress when traffic grows.
 - Automate the daily PostgreSQL dump (`/opt/ai-wardrobe/backups`) with cron/systemd on the production host and add an off-host copy.
+- `POST /items/{id}/generate-product-image` still uses the old Pillow white-background normalization inline in the API; move it to a Celery task that calls `LlmGateway.generate_product_image` so manual regeneration matches the upload pipeline.
 
 Done in 0.3.0:
 

@@ -44,10 +44,15 @@ flowchart LR
 1. User uploads an image through bot or Mini App.
 2. Backend stores original image metadata and creates an upload task.
 3. Worker receives a signed read URL with short TTL.
-4. LLM Gateway calls OpenRouter with safe clothing-only prompts.
+4. LLM Gateway calls OpenRouter with safe clothing-only prompts and detects every garment on the photo (max 6).
 5. JSON response is validated against Pydantic schemas.
-6. Backend persists garment/look/outfit records and privacy receipt.
-7. Bot notification or Mini App status view surfaces the result.
+6. For each detected garment the worker asks the image-generation model (`OPENROUTER_MODEL_IMAGE_GEN`) for a
+   marketplace-style product photo on a clean background (`PRODUCT_IMAGE_BACKGROUND`: white or dark). The prompt
+   forbids changing color/cut/defects, and on failure the card falls back to the normalized original photo.
+7. Backend persists one garment card per detected item; a look photo with several garments also becomes a LookCard
+   linking those items. Privacy receipt is stored as before.
+8. Bot notification or Mini App status view surfaces the result; the user gets a Telegram message when some garments
+   could not be carded or could not get a product photo.
 
 Research must use only text extracted from the item description. Private photos, face data and body assessment are out of bounds.
 

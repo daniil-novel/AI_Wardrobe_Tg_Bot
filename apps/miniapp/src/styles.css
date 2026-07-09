@@ -389,6 +389,12 @@ button:disabled {
   gap: 10px;
 }
 
+.favorite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .swatch-denim {
   background: linear-gradient(145deg, #29384c, #071021);
 }
@@ -639,6 +645,23 @@ button:disabled {
   padding: 4px;
   background: var(--bg-surface);
   color: var(--success);
+}
+
+.delete-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  padding: 4px;
+  background: var(--bg-surface);
+  color: var(--danger);
+  cursor: pointer;
 }
 
 .garment-meta {

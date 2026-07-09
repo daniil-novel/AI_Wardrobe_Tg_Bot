@@ -11,6 +11,7 @@ import {
   Send,
   Sparkles,
   Thermometer,
+  Trash2,
   Umbrella,
   Upload,
   Wind,
@@ -18,7 +19,9 @@ import {
 
 import {
   authenticateWithTelegram,
+  deleteOutfit,
   deleteUpload,
+  deleteWardrobeItem,
   favoriteOutfit,
   getWardrobeHealth,
   getWardrobeItemImageObjectUrl,
@@ -470,6 +473,37 @@ function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: 
     });
   }
 
+  function requestDeleteItem(item: GarmentCard) {
+    const proceed = (confirmed: boolean) => {
+      if (!confirmed) {
+        return;
+      }
+      void deleteWardrobeItem(item.id)
+        .then(() => {
+          setRemoteGarments((current) => current.filter((existing) => existing.id !== item.id));
+          setSelectedItems((current) => {
+            const next = new Set(current);
+            next.delete(item.id);
+            return next;
+          });
+          if (item.imageUrl) {
+            URL.revokeObjectURL(item.imageUrl);
+          }
+          onNotify(`«${item.title}» удалена из гардероба.`, "success");
+        })
+        .catch((error: unknown) => {
+          onNotify(error instanceof Error ? error.message : "Не удалось удалить вещь.", "error");
+        });
+    };
+    const message = `Удалить «${item.title}» из гардероба?`;
+    const webApp = getTelegramWebApp();
+    if (webApp?.showConfirm) {
+      webApp.showConfirm(message, proceed);
+    } else {
+      proceed(window.confirm(message));
+    }
+  }
+
   return (
     <section className="screen-stack">
       <header className="compact-header">
@@ -530,6 +564,7 @@ function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: 
               selectable
               selected={selectedItems.has(item.id)}
               onClick={() => toggleItem(item)}
+              onDelete={() => requestDeleteItem(item)}
             />
           ))}
         </div>
@@ -917,6 +952,34 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
     }
   }
 
+  function requestDeleteOutfit(outfit: OutfitCard) {
+    const proceed = (confirmed: boolean) => {
+      if (!confirmed) {
+        return;
+      }
+      void deleteOutfit(outfit.id)
+        .then(() => {
+          setOutfits((current) => current.filter((existing) => existing.id !== outfit.id));
+          setFavoriteIds((current) => {
+            const next = new Set(current);
+            next.delete(outfit.id);
+            return next;
+          });
+          onNotify(`Образ «${outfit.title}» удалён.`, "success");
+        })
+        .catch((error: unknown) => {
+          onNotify(error instanceof Error ? error.message : "Не удалось удалить образ.", "error");
+        });
+    };
+    const message = `Удалить образ «${outfit.title}»?`;
+    const webApp = getTelegramWebApp();
+    if (webApp?.showConfirm) {
+      webApp.showConfirm(message, proceed);
+    } else {
+      proceed(window.confirm(message));
+    }
+  }
+
   async function similarOutfit(outfit: OutfitCard) {
     setSimilarBusy(true);
     try {
@@ -958,14 +1021,24 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
             <div>
               <div className="favorite-head">
                 <h2>{outfit.title}</h2>
-                <button
-                  className={favoriteIds.has(outfit.id) ? "round-button active" : "round-button"}
-                  type="button"
-                  aria-label="В избранное"
-                  onClick={() => void toggleFavorite(outfit)}
-                >
-                  <Heart size={18} />
-                </button>
+                <div className="favorite-actions">
+                  <button
+                    className={favoriteIds.has(outfit.id) ? "round-button active" : "round-button"}
+                    type="button"
+                    aria-label="В избранное"
+                    onClick={() => void toggleFavorite(outfit)}
+                  >
+                    <Heart size={18} />
+                  </button>
+                  <button
+                    className="round-button"
+                    type="button"
+                    aria-label={`Удалить образ «${outfit.title}»`}
+                    onClick={() => requestDeleteOutfit(outfit)}
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
               <p>{outfit.reason}</p>
             </div>

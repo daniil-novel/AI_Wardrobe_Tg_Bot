@@ -308,6 +308,13 @@ export async function listWardrobeItems(): Promise<GarmentCard[]> {
   });
 }
 
+export async function deleteWardrobeItem(itemId: string): Promise<void> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/items/${itemId}`, {
+    method: "DELETE",
+  });
+  await readJson<{ id: string; status: string }>(response);
+}
+
 export async function getWardrobeItemImageObjectUrl(itemId: string): Promise<string | undefined> {
   const response = await authenticatedFetch(`${apiBaseUrl}/items/${itemId}/image`);
   if (response.status === 404) {
@@ -359,6 +366,13 @@ export async function selectOutfit(outfitId: string): Promise<void> {
 export async function favoriteOutfit(outfitId: string): Promise<OutfitCard> {
   const response = await authenticatedFetch(`${apiBaseUrl}/outfits/${outfitId}/favorite`, { method: "POST" });
   return mapOutfit(await readJson<ApiOutfit>(response));
+}
+
+export async function deleteOutfit(outfitId: string): Promise<void> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/outfits/${outfitId}`, {
+    method: "DELETE",
+  });
+  await readJson<{ id: string; status: string }>(response);
 }
 
 export async function recommendWithAnchors(anchorItemIds: string[], prompt?: string): Promise<OutfitCard[]> {

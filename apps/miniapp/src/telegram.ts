@@ -20,6 +20,7 @@ export type TelegramWebApp = {
     impactOccurred: (style: "light" | "medium" | "heavy") => void;
     notificationOccurred: (type: "success" | "warning" | "error") => void;
   };
+  showConfirm?: (message: string, callback: (confirmed: boolean) => void) => void;
 };
 
 declare global {

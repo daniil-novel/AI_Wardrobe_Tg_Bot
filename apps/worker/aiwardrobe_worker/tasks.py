@@ -16,17 +16,46 @@ from aiwardrobe_core.image_validation import (
     detect_image_content_type,
     validate_image_content,
 )
-from aiwardrobe_core.llm_gateway import LlmGateway
+from aiwardrobe_core.llm_gateway import LlmGateway, LlmGatewayError
 from aiwardrobe_core.logging import hash_identifier
-from aiwardrobe_core.models import AiRequest, GarmentItem, ImageAsset, OutfitCard, OutfitItem, PrivacyReceipt, Upload
+from aiwardrobe_core.models import (
+    AiRequest,
+    GarmentItem,
+    ImageAsset,
+    LookCard,
+    LookItem,
+    OutfitCard,
+    OutfitItem,
+    PrivacyReceipt,
+    Upload,
+    User,
+)
 from aiwardrobe_core.storage import ObjectStorage, build_storage_key
 from celery.exceptions import Ignore
 from celery.utils.log import get_task_logger
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .celery_app import celery_app
 
 logger = get_task_logger(__name__)
+
+
+def find_possible_duplicate(
+    title: str, category: str, main_color: str | None, existing_items: list[GarmentItem]
+) -> GarmentItem | None:
+    """Best-effort match so a re-uploaded garment is flagged as a possible duplicate, not silently copied."""
+    normalized_title = title.casefold().strip()
+    for item in existing_items:
+        existing_title = (item.title or "").casefold().strip()
+        if existing_title == normalized_title:
+            return item
+        if (
+            item.category == category
+            and (item.main_color or "").casefold() == (main_color or "").casefold()
+            and (normalized_title in existing_title or existing_title in normalized_title)
+        ):
+            return item
+    return None
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
@@ -42,10 +71,15 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
             upload = result.scalar_one_or_none()
             if upload is None:
                 raise ValueError("Upload not found.")
+            if upload.status == ProcessingStatus.COMPLETED.value:
+                # Retries after a post-commit hiccup must not duplicate the cards.
+                return {"image_type": "unknown", "items_created": 0, "skipped": "already_completed"}
+            user_id = upload.user_id
             upload.status = ProcessingStatus.PROCESSING.value
             await session.commit()
 
             try:
+                gateway = LlmGateway(settings)
                 content: bytes | None = None
                 if storage_key.startswith(("http://", "https://")):
                     image_url = storage_key
@@ -55,53 +89,135 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                     content = await ObjectStorage(settings).get_bytes(storage_key)
                     content_type = detect_image_content_type(content) or "image/jpeg"
                     image_url = f"data:{content_type};base64,{b64encode(content).decode()}"
-                analysis = await LlmGateway(settings).analyze_image(
-                    image_url,
-                    "Analyze the clothing image and return image_type, item fields, season, color, "
-                    "style, designer_attributes and confidence.",
+
+                analysis = await gateway.analyze_image_items(image_url)
+                garments = analysis.items[:6]
+
+                existing_result = await session.execute(
+                    select(GarmentItem).where(
+                        GarmentItem.user_id == upload.user_id,
+                        GarmentItem.deleted_at.is_(None),
+                    )
                 )
-                processed_image_id = None
-                if content is not None:
+                existing_items = list(existing_result.scalars())
+
+                created_items: list[GarmentItem] = []
+                failed_titles: list[str] = []
+                degraded_titles: list[str] = []
+                for garment in garments:
                     try:
-                        processed_content = create_white_background_product_image(content)
-                        processed_key = build_storage_key(upload.user_id, "processed", f"{upload.id}.jpg")
-                        await ObjectStorage(settings).put_bytes(processed_key, processed_content, "image/jpeg")
-                        processed_image = ImageAsset(
-                            user_id=upload.user_id,
-                            source_type="processed",
-                            storage_key=processed_key,
-                            provenance_label=ProvenanceLabel.USER_PROCESSED.value,
-                            generated_prompt="Normalized item photo on a white product background.",
-                        )
-                        session.add(processed_image)
-                        await session.flush()
-                        processed_image_id = processed_image.id
-                    except ImageProcessingError:
+                        async with session.begin_nested():
+                            processed_image_id = None
+                            try:
+                                product_hint = f"{garment.title} ({garment.main_color}, {garment.category})"
+                                product_bytes = await gateway.generate_product_image(
+                                    image_url, product_hint, settings.product_image_background
+                                )
+                                processed_key = build_storage_key(
+                                    upload.user_id, "processed", f"{upload.id}-{len(created_items)}.png"
+                                )
+                                await ObjectStorage(settings).put_bytes(processed_key, product_bytes, "image/png")
+                                processed_image = ImageAsset(
+                                    user_id=upload.user_id,
+                                    source_type="processed",
+                                    storage_key=processed_key,
+                                    provenance_label=ProvenanceLabel.USER_PROCESSED.value,
+                                    generated_prompt=(
+                                        f"Product photo: {product_hint} on "
+                                        f"{settings.product_image_background} background."
+                                    ),
+                                )
+                                session.add(processed_image)
+                                await session.flush()
+                                processed_image_id = processed_image.id
+                            except Exception:
+                                # Product extraction is best-effort: fall back to the normalized original.
+                                degraded_titles.append(garment.title)
+                                if content is not None:
+                                    try:
+                                        processed_content = create_white_background_product_image(content)
+                                        processed_key = build_storage_key(
+                                            upload.user_id, "processed", f"{upload.id}-{len(created_items)}.jpg"
+                                        )
+                                        await ObjectStorage(settings).put_bytes(
+                                            processed_key, processed_content, "image/jpeg"
+                                        )
+                                        processed_image = ImageAsset(
+                                            user_id=upload.user_id,
+                                            source_type="processed",
+                                            storage_key=processed_key,
+                                            provenance_label=ProvenanceLabel.USER_PROCESSED.value,
+                                            generated_prompt="Normalized item photo on a white product background.",
+                                        )
+                                        session.add(processed_image)
+                                        await session.flush()
+                                        processed_image_id = processed_image.id
+                                    except ImageProcessingError:
+                                        logger.warning(
+                                            "Product image normalization failed",
+                                            extra={"upload_id_hash": hash_identifier(upload_id)},
+                                        )
+
+                            duplicate_of = find_possible_duplicate(
+                                garment.title, garment.category, garment.main_color, existing_items
+                            )
+                            attributes = {
+                                **garment.designer_attributes,
+                                "brand": garment.brand,
+                                "model_name": garment.model_name,
+                                "visual_identifiers": garment.visual_identifiers,
+                                "designer_reasoning": garment.designer_reasoning,
+                            }
+                            if duplicate_of is not None:
+                                attributes["possible_duplicate_of"] = str(duplicate_of.id)
+                                attributes["possible_duplicate_title"] = duplicate_of.title
+                            item = GarmentItem(
+                                user_id=upload.user_id,
+                                title=garment.title[:255],
+                                category=garment.category[:128],
+                                description=garment.description,
+                                main_color=garment.main_color,
+                                season=garment.season,
+                                style_archetype=garment.style_archetype,
+                                designer_attributes=attributes,
+                                confidence=Decimal(str(garment.confidence)),
+                                status=GarmentStatus.NEEDS_CONFIRMATION.value,
+                                source_upload_id=upload.id,
+                                original_image_id=upload.original_image_id,
+                                processed_image_id=processed_image_id,
+                            )
+                            session.add(item)
+                            await session.flush()
+                            created_items.append(item)
+                    except Exception:
+                        # One broken garment must not lose the rest of the photo.
+                        failed_titles.append(garment.title)
                         logger.warning(
-                            "Product image normalization failed",
+                            "Garment card creation failed",
                             extra={"upload_id_hash": hash_identifier(upload_id)},
                         )
-                item = GarmentItem(
-                    user_id=upload.user_id,
-                    title=analysis.title,
-                    category=analysis.category,
-                    description=analysis.description,
-                    main_color=analysis.main_color,
-                    season=analysis.season,
-                    style_archetype=analysis.style_archetype,
-                    designer_attributes={
-                        **analysis.designer_attributes,
-                        "brand": analysis.brand,
-                        "model_name": analysis.model_name,
-                        "visual_identifiers": analysis.visual_identifiers,
-                        "designer_reasoning": analysis.designer_reasoning,
-                    },
-                    confidence=Decimal(str(analysis.confidence)),
-                    status=GarmentStatus.NEEDS_CONFIRMATION.value,
-                    source_upload_id=upload.id,
-                    original_image_id=upload.original_image_id,
-                    processed_image_id=processed_image_id,
-                )
+                if not created_items:
+                    raise LlmGatewayError("No garment card could be created from the photo.")
+                await session.flush()
+
+                # TZ 6.2: a look photo becomes a favorite LookCard linked to draft item cards.
+                if created_items and (analysis.image_type in {"look", "look_photo"} or len(created_items) > 1):
+                    look = LookCard(
+                        user_id=upload.user_id,
+                        title=analysis.look_title or "Загруженный образ",
+                        source_type="upload",
+                        source_upload_id=upload.id,
+                        original_image_id=upload.original_image_id,
+                        is_favorite=True,
+                        style_tags=analysis.look_style_tags,
+                        designer_reasoning={"why_it_works": analysis.look_summary},
+                        confidence=Decimal(str(max((g.confidence for g in garments), default=0))),
+                    )
+                    session.add(look)
+                    await session.flush()
+                    for sort_order, item in enumerate(created_items):
+                        session.add(LookItem(look_id=look.id, item_id=item.id, sort_order=sort_order))
+
                 receipt = PrivacyReceipt(
                     user_id=upload.user_id,
                     upload_id=upload.id,
@@ -112,10 +228,9 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                 )
                 upload.status = ProcessingStatus.COMPLETED.value
                 upload.completed_at = datetime.now(UTC)
-                upload.confidence = Decimal(str(analysis.confidence))
+                upload.confidence = Decimal(str(max((g.confidence for g in garments), default=0)))
                 session.add_all(
                     [
-                        item,
                         receipt,
                         AiRequest(
                             user_id=upload.user_id,
@@ -127,16 +242,56 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                         ),
                     ]
                 )
+
+                # TZ: tell the user which garments could not become full product cards.
+                notes: list[str] = []
+                if len(analysis.items) > len(garments):
+                    notes.append(f"На фото нашлось {len(analysis.items)} вещей — добавлены первые {len(garments)}.")
+                if failed_titles:
+                    notes.append("Не получилось добавить: " + ", ".join(failed_titles) + ".")
+                if degraded_titles:
+                    notes.append(
+                        "Не получилось сделать товарное фото для: "
+                        + ", ".join(degraded_titles)
+                        + " — в карточке останется исходный кадр."
+                    )
+                telegram_id: int | None = None
+                if notes:
+                    telegram_result = await session.execute(select(User.telegram_id).where(User.id == upload.user_id))
+                    telegram_id = telegram_result.scalar_one_or_none()
                 await session.commit()
-                return analysis.model_dump()
+
+                if notes and telegram_id is not None:
+                    try:
+                        # After the commit nothing may raise, or a retry would duplicate the cards.
+                        send_notification.delay(telegram_id, " ".join(notes))
+                    except Exception:
+                        logger.warning(
+                            "Failed to enqueue garment notification",
+                            extra={"upload_id_hash": hash_identifier(upload_id)},
+                        )
+                return {
+                    "image_type": analysis.image_type,
+                    "items_created": len(created_items),
+                    "items_failed": len(failed_titles),
+                    "titles": [item.title for item in created_items],
+                }
             except Exception as exc:
-                upload.status = ProcessingStatus.FAILED.value
-                upload.error_code = exc.__class__.__name__
-                upload.error_message = str(exc)[:1000]
+                # Drop every half-created card first: the retry will rebuild them from scratch.
+                await session.rollback()
+                await session.execute(
+                    update(Upload)
+                    .where(Upload.id == UUID(upload_id))
+                    .values(
+                        status=ProcessingStatus.FAILED.value,
+                        error_code=exc.__class__.__name__,
+                        error_message=str(exc)[:1000],
+                    )
+                )
                 session.add(
                     AiRequest(
-                        user_id=upload.user_id,
-                        task_id=upload.id,
+                        user_id=user_id,
+                        task_id=UUID(upload_id),
                         model=settings.openrouter_model_image,
                         request_type="analyze_image",
                         status=ProcessingStatus.FAILED.value,

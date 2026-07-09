@@ -12,6 +12,7 @@ import {
   Search,
   Shirt,
   Sparkles,
+  Trash2,
   Upload,
 } from "lucide-react";
 
@@ -92,11 +93,13 @@ export function InteractiveGarmentTile({
   selectable = false,
   selected = false,
   onClick,
+  onDelete,
 }: {
   item: GarmentCard;
   selectable?: boolean;
   selected?: boolean;
   onClick?: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <article
@@ -121,6 +124,19 @@ export function InteractiveGarmentTile({
           </>
         )}
         {selectable || selected ? <Check className="select-check" size={18} /> : null}
+        {onDelete ? (
+          <button
+            className="delete-check"
+            type="button"
+            aria-label={`Удалить «${item.title}»`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 size={16} />
+          </button>
+        ) : null}
       </div>
       <div className="garment-meta">
         <div>
