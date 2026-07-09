@@ -1,3 +1,4 @@
+import { getTelegramWebApp } from "./telegram";
 import type {
   DesignerChatReply,
   DesignerResult,
@@ -94,10 +95,30 @@ export async function authenticateWithTelegram(initData: string): Promise<void> 
   saveTokens(await readJson<TokenPair>(response));
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+function clearTokens(): void {
+  window.localStorage.removeItem(accessTokenKey);
+  window.localStorage.removeItem(refreshTokenKey);
+}
+
+async function reauthenticateWithTelegram(): Promise<boolean> {
+  const initData = getTelegramWebApp()?.initData;
+  if (!initData) {
+    clearTokens();
+    return false;
+  }
+  try {
+    await authenticateWithTelegram(initData);
+    return true;
+  } catch {
+    clearTokens();
+    return false;
+  }
+}
+
+async function doRefreshAccessToken(): Promise<boolean> {
   const refreshToken = window.localStorage.getItem(refreshTokenKey);
   if (!refreshToken) {
-    return false;
+    return reauthenticateWithTelegram();
   }
   const response = await fetch(`${apiBaseUrl}/auth/refresh`, {
     method: "POST",
@@ -105,12 +126,23 @@ async function refreshAccessToken(): Promise<boolean> {
     body: JSON.stringify({ refresh_token: refreshToken }),
   });
   if (!response.ok) {
-    window.localStorage.removeItem(accessTokenKey);
-    window.localStorage.removeItem(refreshTokenKey);
-    return false;
+    // The server rotates refresh tokens, so a lost race or expiry lands here:
+    // recover with a fresh Telegram initData login instead of going tokenless.
+    return reauthenticateWithTelegram();
   }
   saveTokens(await response.json());
   return true;
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+function refreshAccessToken(): Promise<boolean> {
+  // Single flight: parallel 401s must share one refresh, or the losers would
+  // rotate-fail and wipe the tokens the winner just saved.
+  refreshInFlight ??= doRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 async function readJson<T>(response: Response): Promise<T> {
