@@ -34,3 +34,17 @@ declare global {
 export function getTelegramWebApp(): TelegramWebApp | undefined {
   return window.Telegram?.WebApp;
 }
+
+export function confirmDialog(message: string, callback: (confirmed: boolean) => void): void {
+  const webApp = getTelegramWebApp();
+  if (webApp?.showConfirm) {
+    try {
+      webApp.showConfirm(message, callback);
+      return;
+    } catch {
+      // Telegram clients below 6.2 (and plain browsers) throw
+      // WebAppMethodUnsupported — fall back to the native confirm.
+    }
+  }
+  callback(window.confirm(message));
+}

@@ -40,7 +40,7 @@ import {
 } from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
 import { quickScenarios } from "./data";
-import { getTelegramWebApp } from "./telegram";
+import { confirmDialog, getTelegramWebApp } from "./telegram";
 import type {
   DesignerResult,
   DesignerToolKey,
@@ -495,13 +495,7 @@ function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: 
           onNotify(error instanceof Error ? error.message : "Не удалось удалить вещь.", "error");
         });
     };
-    const message = `Удалить «${item.title}» из гардероба?`;
-    const webApp = getTelegramWebApp();
-    if (webApp?.showConfirm) {
-      webApp.showConfirm(message, proceed);
-    } else {
-      proceed(window.confirm(message));
-    }
+    confirmDialog(`Удалить «${item.title}» из гардероба?`, proceed);
   }
 
   return (
@@ -971,13 +965,7 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
           onNotify(error instanceof Error ? error.message : "Не удалось удалить образ.", "error");
         });
     };
-    const message = `Удалить образ «${outfit.title}»?`;
-    const webApp = getTelegramWebApp();
-    if (webApp?.showConfirm) {
-      webApp.showConfirm(message, proceed);
-    } else {
-      proceed(window.confirm(message));
-    }
+    confirmDialog(`Удалить образ «${outfit.title}»?`, proceed);
   }
 
   async function similarOutfit(outfit: OutfitCard) {
