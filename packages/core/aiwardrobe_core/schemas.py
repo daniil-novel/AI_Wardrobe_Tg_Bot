@@ -132,6 +132,7 @@ class LookCardRead(BaseModel):
     style_tags: list[Any] = Field(default_factory=list)
     designer_reasoning: dict[str, Any] = Field(default_factory=dict)
     confidence: Decimal = Decimal("0")
+    item_ids: list[UUID] = Field(default_factory=list)
 
 
 class OutfitRequest(BaseModel):

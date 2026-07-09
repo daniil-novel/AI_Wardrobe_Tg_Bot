@@ -6,6 +6,7 @@ from aiwardrobe_core.schemas import LookCardRead
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from aiwardrobe_api.dependencies import CurrentUser, DbSession
 
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/looks", tags=["looks"])
 
 
 def look_read_model(look: LookCard) -> LookCardRead:
+    links = sorted(look.items, key=lambda link: link.sort_order)
     return LookCardRead(
         id=look.id,
         title=look.title,
@@ -20,6 +22,7 @@ def look_read_model(look: LookCard) -> LookCardRead:
         style_tags=list(look.style_tags),
         designer_reasoning=dict(look.designer_reasoning),
         confidence=look.confidence,
+        item_ids=[link.item_id for link in links],
     )
 
 
@@ -27,6 +30,7 @@ def look_read_model(look: LookCard) -> LookCardRead:
 async def list_looks(user_id: UUID = CurrentUser, session: AsyncSession = DbSession) -> list[LookCardRead]:
     result = await session.execute(
         select(LookCard)
+        .options(selectinload(LookCard.items))
         .where(LookCard.user_id == user_id, LookCard.deleted_at.is_(None))
         .order_by(LookCard.created_at.desc())
         .limit(100)
@@ -79,7 +83,9 @@ async def delete_look(
 
 async def load_look(session: AsyncSession, user_id: UUID, look_id: UUID) -> LookCard:
     result = await session.execute(
-        select(LookCard).where(
+        select(LookCard)
+        .options(selectinload(LookCard.items))
+        .where(
             LookCard.id == look_id,
             LookCard.user_id == user_id,
             LookCard.deleted_at.is_(None),
