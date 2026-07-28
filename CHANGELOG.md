@@ -39,6 +39,8 @@
 
 - Celery workers now reuse one event loop per prefork process, preventing asyncpg pools from being reused from a
   different loop during sequential image, avatar and try-on jobs.
+- Avatar and try-on rows are now committed before Celery can consume their messages, removing the fast-worker
+  `job not found` retry race.
 - New avatar profiles return an empty `200` response instead of a noisy expected `404`; narrow wardrobe cards now
   constrain metadata so confidence badges cannot create horizontal page overflow.
 - Subscription price states are localized and the privacy card no longer claims that every hybrid request used

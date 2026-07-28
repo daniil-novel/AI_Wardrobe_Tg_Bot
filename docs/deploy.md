@@ -25,6 +25,15 @@ Do not treat the local `dist/subscription` and `dist/open` folders as production
 - Sizing: `API_WORKERS=1`, `WORKER_CONCURRENCY=1` (single vCPU); RabbitMQ is the Celery broker, worker consumes `-Q celery,ai,research,recommendations,notifications`.
 - Backups: manual dump exists at `/opt/ai-wardrobe/backups/ai_wardrobe_initial.sql.gz`; schedule
   `docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres pg_dump -U ai_wardrobe ai_wardrobe | gzip > /opt/ai-wardrobe/backups/ai_wardrobe_$(date +%Y%m%d).sql.gz`
+
+The API and worker run as UID/GID `10001`. Prepare the bind-mounted log directory before the first start or after
+restoring the app root:
+
+```bash
+sudo install -d -m 0750 -o 10001 -g 10001 /opt/ai-wardrobe/logs
+```
+
+Verify that `api.log` and `worker.log` appear after startup; Docker stdout remains the secondary log stream.
   daily via cron and copy dumps off the host.
 
 Redeploy from a workstation:

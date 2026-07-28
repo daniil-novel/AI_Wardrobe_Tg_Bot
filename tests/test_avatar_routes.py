@@ -125,6 +125,40 @@ async def test_generate_without_provider_records_honest_failure(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_avatar_job_is_committed_before_celery_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_id = uuid4()
+    profile = profile_for(
+        user_id,
+        status="ready_for_generation",
+        reference_image_id=uuid4(),
+        consented_at=datetime.now(UTC),
+    )
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=[result_with(profile), result_with_many([])])
+    session.commit = AsyncMock()
+    monkeypatch.setattr(
+        avatar,
+        "get_settings",
+        lambda: Settings(subscriptions_enabled=False, openrouter_api_key="configured"),
+    )
+    monkeypatch.setattr(avatar, "reserve_billable_request", AsyncMock(return_value=MagicMock()))
+
+    def enqueue_after_commit(_: str) -> MagicMock:
+        assert session.commit.await_count == 1
+        return MagicMock(id="avatar-task")
+
+    monkeypatch.setattr(
+        "aiwardrobe_worker.tasks.generate_avatar_image.delay",
+        enqueue_after_commit,
+    )
+
+    response = await avatar.generate_avatar(user_id=user_id, session=session)
+
+    assert response.status == ProcessingStatus.QUEUED.value
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_revoke_profile_removes_biometric_links() -> None:
     user_id = uuid4()
     generated_image_id = uuid4()
@@ -215,6 +249,65 @@ async def test_try_on_without_provider_creates_failed_auditable_job(monkeypatch:
     assert response.error_code == "provider_not_configured"
     assert response.garment_item_ids == [item_id]
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_try_on_job_is_committed_before_celery_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_id = uuid4()
+    item_id = uuid4()
+    profile = profile_for(
+        user_id,
+        status=ProcessingStatus.COMPLETED.value,
+        generated_image_id=uuid4(),
+    )
+    garment = GarmentItem(id=item_id, user_id=user_id, title="Overshirt", category="top")
+    try_on_item = TryOnItem(try_on_job_id=uuid4(), item_id=item_id, sort_order=0)
+    session = MagicMock()
+    session.execute = AsyncMock(
+        side_effect=[
+            result_with(profile),
+            result_with_many([garment]),
+            result_with_many([try_on_item]),
+        ]
+    )
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+
+    def add_with_generated_fields(value: object) -> None:
+        if value.__class__.__name__ == "TryOnJob":
+            value.id = uuid4()  # type: ignore[attr-defined]
+            value.created_at = datetime.now(UTC)  # type: ignore[attr-defined]
+
+    session.add.side_effect = add_with_generated_fields
+    monkeypatch.setattr(
+        avatar,
+        "get_settings",
+        lambda: Settings(subscriptions_enabled=False, openrouter_api_key="configured"),
+    )
+    monkeypatch.setattr(avatar, "reserve_billable_request", AsyncMock(return_value=MagicMock()))
+
+    def enqueue_after_commit(_: str) -> MagicMock:
+        assert session.commit.await_count == 1
+        return MagicMock(id="try-on-task")
+
+    monkeypatch.setattr(
+        "aiwardrobe_worker.tasks.generate_virtual_try_on.delay",
+        enqueue_after_commit,
+    )
+
+    response = await avatar.create_try_on(
+        TryOnCreate(garment_item_ids=[item_id]),
+        user_id=user_id,
+        session=session,
+    )
+
+    assert response.status == ProcessingStatus.QUEUED.value
+    queued_job = next(
+        call.args[0] for call in session.add.call_args_list if call.args[0].__class__.__name__ == "TryOnJob"
+    )
+    assert queued_job.provider_job_id == "try-on-task"
+    assert session.commit.await_count == 2
 
 
 @pytest.mark.asyncio

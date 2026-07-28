@@ -230,6 +230,11 @@ async def generate_avatar(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Monthly avatar generation quota exceeded.",
         ) from exc
+    profile.status = ProcessingStatus.QUEUED.value
+    profile.generation_error = None
+    # Commit the reservation and visible profile state before the broker can
+    # deliver the task to a different process.
+    await session.commit()
     try:
         from aiwardrobe_worker.tasks import generate_avatar_image
 
@@ -241,9 +246,6 @@ async def generate_avatar(
         profile.generation_error = "queue_unavailable"
         await session.commit()
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue is unavailable.") from exc
-    profile.status = ProcessingStatus.QUEUED.value
-    profile.generation_error = None
-    await session.commit()
     return await _profile_read(session, profile)
 
 
@@ -334,6 +336,10 @@ async def create_try_on(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Monthly virtual try-on quota exceeded.",
             ) from exc
+        job.status = ProcessingStatus.QUEUED.value
+        # The job and its selected items must be visible before Celery is
+        # allowed to consume the message.
+        await session.commit()
         try:
             from aiwardrobe_worker.tasks import generate_virtual_try_on
 
@@ -349,7 +355,6 @@ async def create_try_on(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue is unavailable."
             ) from exc
-        job.status = ProcessingStatus.QUEUED.value
         job.provider_job_id = str(task.id)
     await session.commit()
     await session.refresh(job)
