@@ -1423,6 +1423,31 @@ button:disabled {
   gap: 8px;
 }
 
+.look-collage.items-1 {
+  grid-template-columns: minmax(0, 132px);
+}
+
+.look-collage.items-2 {
+  grid-template-columns: repeat(2, minmax(0, 132px));
+}
+
+.look-collage span {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  background: #ffffff;
+  color: var(--text-tertiary);
+}
+
+.look-collage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  object-fit: contain;
+}
+
 .bottom-nav {
   position: fixed;
   right: max(12px, calc((100vw - 520px) / 2 + 12px));

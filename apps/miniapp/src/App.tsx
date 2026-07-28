@@ -25,6 +25,7 @@ import {
   ScanLine,
   Search,
   Send,
+  Shirt,
   Sparkles,
   Ticket,
   Thermometer,
@@ -1176,6 +1177,7 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
   const [activeFavoriteTab, setActiveFavoriteTab] = useState(tabs[0]);
   const [outfits, setOutfits] = useState<OutfitCard[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [itemImages, setItemImages] = useState<Record<string, string>>({});
   const [similarBusy, setSimilarBusy] = useState(false);
 
   useEffect(() => {
@@ -1191,6 +1193,36 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить избранное.", "error");
       });
   }, [authReady, onNotify]);
+
+  useEffect(() => {
+    if (!authReady || outfits.length === 0) {
+      return;
+    }
+    const itemIds = Array.from(new Set(outfits.flatMap((outfit) => outfit.items))).filter(
+      (itemId) => !itemImages[itemId],
+    );
+    if (itemIds.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void mapWithConcurrency(itemIds, 3, async (itemId) => {
+      try {
+        return [itemId, await getWardrobeItemImageObjectUrl(itemId)] as const;
+      } catch {
+        return [itemId, undefined] as const;
+      }
+    }).then((entries) => {
+      if (!cancelled) {
+        setItemImages((current) => ({
+          ...current,
+          ...Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))),
+        }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, itemImages, outfits]);
 
   const visibleOutfits = (
     activeFavoriteTab === "Избранные" ? outfits.filter((outfit) => favoriteIds.has(outfit.id)) : outfits
@@ -1290,6 +1322,22 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
               </div>
               <p>{outfit.reason}</p>
             </div>
+            {outfit.items.length > 0 ? (
+              <div
+                className={`look-collage items-${Math.min(outfit.items.length, 4)}`}
+                aria-label={`Вещи образа «${outfit.title}»`}
+              >
+                {outfit.items.slice(0, 4).map((itemId) => (
+                  <span key={itemId}>
+                    {itemImages[itemId] ? (
+                      <img src={itemImages[itemId]} alt="" loading="lazy" />
+                    ) : (
+                      <Shirt aria-hidden="true" size={26} strokeWidth={1.6} />
+                    )}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <div className="action-row two">
               <button
                 className="primary"
@@ -1799,7 +1847,7 @@ function StudioScreen({
       <article className={`try-on-card${hasAvatarAccess ? "" : " locked"}`}>
         <div className="selection-head">
           <div>
-            <span className="eyebrow">Virtual try-on</span>
+              <span className="eyebrow">Виртуальная примерка</span>
             <h2>Примерить вещи</h2>
           </div>
           <Sparkles size={24} />

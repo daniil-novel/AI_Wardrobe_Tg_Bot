@@ -29,6 +29,7 @@
 - Codex prompts now travel over stdin and the child process receives a secret-minimized environment; user images are
   treated as untrusted data and exist only in an ephemeral working directory.
 - Studio now shows stacked mobile tariff cards, explicit monthly generation limits, promo activation and honest payment-disabled states.
+- Saved outfit cards now load compact product-photo collages, so visually similar recommendations remain identifiable.
 - Avatar prompts preserve visible identity and body proportions without slimming, beautification or sexualization.
 - Bottom navigation uses compact visible labels with full accessible names; horizontal chips no longer expose system scrollbars at the tested mobile viewport.
 - Telegram haptics are gated by supported WebApp versions.
@@ -45,6 +46,7 @@
   constrain metadata so confidence badges cannot create horizontal page overflow.
 - Subscription price states are localized and the privacy card no longer claims that every hybrid request used
   OpenRouter.
+- The final English `VIRTUAL TRY-ON` eyebrow is localized in the Russian Mini App.
 - Direct Mini App uploads now flush the image row before reading its UUID, so the upload keeps a valid private-original
   reference for retry and avatar workflows; migration `0005` repairs only exact one-to-one legacy orphan pairs.
 - Commercial-integrity migration now repairs legacy duplicate analysis reservations by preserving every audit row and
