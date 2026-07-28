@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Hybrid real-AI execution modes (`api`, `runner`, `hybrid`) with configurable API-first/runner-first fallback; `cli`
+  remains a compatibility alias.
+- Authenticated outbound-HTTPS local Codex runner with Redis TTL/heartbeat relay, image inputs, strict JSON Schema,
+  saved-auth or opt-in Ollama/LM Studio, subprocess timeout/output limits and `/health/ai` diagnostics.
+- Windows runner start/stop and real relay-canary scripts; server Docker images remain free of Codex credentials,
+  binaries and Node.
+- Actual provider/model provenance for AI reservations, completions and privacy receipts.
+- User-controlled recognition editor with proposed region, touch/mouse selection, keyboard move/resize, whole-photo mode, undo/redo/reset, client-side crop and persisted selection provenance.
+- Consent-safe avatar profiles, normalized measurements, asynchronous avatar generation and multi-item virtual try-on jobs.
+- Avatar revocation lifecycle that clears consent/profile measurements and deletes derived avatar/try-on objects from S3 and PostgreSQL.
+- Server-side effective entitlements from subscription or promo grants, plus `GET /billing/me` and `POST /billing/promos/redeem`.
+- HMAC-hashed, expiring and redemption-limited promo codes with a secure one-day code creation tool.
+- Transactional monthly quotas for image analysis, avatar generations and virtual try-ons; retries reuse analysis reservations and failed requests release quota slots.
+- Separate `build:subscriptions` and `build:open` Mini App artifacts.
+- Prometheus-compatible per-route HTTP counters, latency histograms and process uptime metrics.
+- Commercial integrity migration with partial unique indexes, idempotency keys and check constraints.
+- Market/pricing, UX, performance, database, security/privacy, engineering-loop and release-readiness reports.
+
+### Changed
+
+- OpenRouter API behavior remains unchanged and is still the pixel-generation boundary, while garment recognition,
+  research, outfit generation and designer chat can run through the trusted local Codex runner.
+- Codex prompts now travel over stdin and the child process receives a secret-minimized environment; user images are
+  treated as untrusted data and exist only in an ephemeral working directory.
+- Studio now shows stacked mobile tariff cards, explicit monthly generation limits, promo activation and honest payment-disabled states.
+- Avatar prompts preserve visible identity and body proportions without slimming, beautification or sexualization.
+- Bottom navigation uses compact visible labels with full accessible names; horizontal chips no longer expose system scrollbars at the tested mobile viewport.
+- Telegram haptics are gated by supported WebApp versions.
+- Preview Free plan limit now matches the server configuration.
+- README now documents both variants, promo creation, quality checks and production gates.
+
+### Fixed
+
+- Runner shutdown now terminates the complete Python/Codex process tree; the first relay canary exposed an orphaned
+  child process when `uv run` was used as the persisted PID.
+- Direct uploads can no longer bypass the displayed monthly AI quota.
+- Worker completion no longer creates a second billable analysis row.
+- Queue/provider failures no longer consume a monthly quota slot.
+- Removed a duplicate `original_image_id` assignment in the direct upload path.
+- Interactive selection no longer uses an image-only ARIA role and can be adjusted from the keyboard.
+
+### Security
+
+- Plaintext promo codes are never stored in the database.
+- Face/body consent revocation deletes sensitive derived images instead of only unlinking them.
+- Billable-request and promo concurrency use database row locks.
+- Metrics exclude user, garment, promo and storage identifiers.
+- Runner endpoints are excluded from OpenAPI, use constant-time bearer verification, enforce minimum secret strength,
+  bound payloads and reject responses for expired jobs.
+
 ## 0.3.1 - 2026-07-06
 
 Fix broken image uploads in production and make every Mini App control real.

@@ -1,5 +1,19 @@
 # Deployment
 
+## Status of the 2026-07-28 working tree
+
+The existing v0.3.1 production endpoint remained reachable during this audit:
+
+- `/` returned HTTP 200;
+- `/api/health` returned HTTP 200;
+- `/api/health/ready` returned HTTP 200.
+
+The editor/avatar/subscription working tree described in the current audit **has not been deployed**. Local PostgreSQL
+fresh `up/down/up`, committed-v0.3.1 → current upgrade, Redis readiness and promo HTTP E2E passed. Deployment remains
+blocked because the production host timed out twice during SSH banner exchange, so a fresh backup, live schema and
+rollback could not be verified; no separate URL was provided for the open variant, and payments remain incomplete.
+Do not treat the local `dist/subscription` and `dist/open` folders as production URLs.
+
 ## Current Production (2026-07-05)
 
 - Host: `v353999.hosted-by-vdsina.com` (91.84.104.36), Ubuntu 22.04, 1 vCPU / 2 GB RAM / 2 GB swap.
@@ -45,6 +59,33 @@ docker compose exec api alembic upgrade head
 
 Production startup is blocked when `JWT_SECRET_KEY`, PostgreSQL password or S3 credentials still use repository
 defaults, or when Telegram/OpenRouter runtime secrets are empty.
+
+## AI execution deployment modes
+
+- `api` preserves the existing OpenRouter path and remains the default.
+- `hybrid` can prefer the local runner and fall back to OpenRouter. It requires a random
+  `CODEX_RUNNER_TOKEN` of at least 32 characters on both server and workstation.
+- `runner` permits real recognition/text without OpenRouter, but intentionally leaves product/avatar/try-on pixel
+  generation unavailable. The current production Compose override still requires OpenRouter because those commercial
+  features are part of the deployed product.
+- Codex and its saved auth stay off the VPS. The workstation uses outbound HTTPS long-polling and does not expose an
+  inbound port. Start it with `scripts/start-codex-runner.ps1`; stop it with `scripts/stop-codex-runner.ps1`.
+- Verify `GET /health/ai`, then run a real image-analysis canary. `/health/ready` checks database/Redis only and does
+  not claim that a remote model or account quota is healthy. `codex_runner_connected=true` means a fresh workstation
+  heartbeat exists, not that the upstream account has unlimited capacity.
+
+Runner deployment steps on Windows:
+
+```powershell
+Copy-Item .env.example .env.runner.local
+# Keep only CODEX_RUNNER_SERVER_URL, CODEX_RUNNER_TOKEN and CODEX_CLI_* entries.
+./scripts/start-codex-runner.ps1
+Invoke-RestMethod https://your-domain.example/api/health/ai
+```
+
+The server token and `.env.runner.local` are secrets and must remain outside Git. Rotate the token after suspected
+exposure. The internal endpoints are intentionally excluded from OpenAPI, reject weak/mismatched bearer tokens, cap
+payloads and accept results only for active, non-expired jobs.
 
 The default compose file supports host port overrides through environment variables. On shared servers, set `API_HOST_PORT`, `MINIAPP_HOST_PORT`, `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `MINIO_HOST_PORT` and `MINIO_CONSOLE_HOST_PORT` explicitly.
 

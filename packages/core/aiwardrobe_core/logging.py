@@ -2,6 +2,8 @@ import logging
 import re
 from collections.abc import Mapping, MutableMapping
 from hashlib import sha256
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -31,8 +33,18 @@ def hash_identifier(value: str) -> str:
     return sha256(value.encode()).hexdigest()[:16]
 
 
-def configure_logging(log_level: str = "INFO") -> None:
-    logging.basicConfig(level=log_level, format="%(message)s")
+def configure_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file:
+        try:
+            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5, encoding="utf-8")
+            file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s %(message)s"))
+            handlers.append(file_handler)
+        except OSError:
+            # A read-only or missing log volume must never take the service down.
+            logging.getLogger(__name__).warning("Log file %s is not writable; file logging disabled", log_file)
+    logging.basicConfig(level=log_level, format="%(message)s", handlers=handlers, force=True)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -41,9 +53,9 @@ def configure_logging(log_level: str = "INFO") -> None:
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.JSONRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=False,
     )
 
 

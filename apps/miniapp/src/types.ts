@@ -1,10 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 
-export type TabKey = "today" | "wardrobe" | "add" | "designer" | "favorites";
+export type TabKey = "today" | "wardrobe" | "add" | "designer" | "favorites" | "studio";
 
 export type NavItem = {
   key: TabKey;
   label: string;
+  shortLabel: string;
   icon: LucideIcon;
 };
 
@@ -47,6 +48,15 @@ export type UploadStatus = {
   upload_type?: string | null;
   progress: number;
   result_title?: string | null;
+};
+
+export type ImageSelection = {
+  kind: "full" | "rectangle";
+  source: "default" | "user";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 export type WeatherDay = {
@@ -94,4 +104,61 @@ export type DesignerChatReply = {
   outfit_score?: number | null;
   outfit_item_ids?: string[];
   item_count: number;
+};
+
+export type BillingPlan = {
+  code: string;
+  title: string;
+  monthly_price: number;
+  currency: string;
+  item_limit: number | null;
+  ai_analysis_limit: number | null;
+  avatar_generation_limit: number;
+  try_on_limit: number;
+  features: string[];
+  pricing_status: string;
+};
+
+export type BillingAccess = {
+  enabled: boolean;
+  payments_enabled: boolean;
+  plan: string;
+  source: string;
+  expires_at: string | null;
+  features: string[];
+};
+
+export type AvatarMeasurement = {
+  code: "height" | "shoulders" | "chest" | "waist" | "hips" | "inseam";
+  value: number;
+  unit: "cm";
+  source?: string;
+  confidence?: number | null;
+};
+
+export type AvatarProfile = {
+  id: string;
+  status: string;
+  description?: string | null;
+  neutral_clothing: string;
+  reference_image_id?: string | null;
+  generated_image_id?: string | null;
+  consent_version?: string | null;
+  consented_at?: string | null;
+  revoked_at?: string | null;
+  generation_error?: string | null;
+  generated_at?: string | null;
+  measurements: AvatarMeasurement[];
+};
+
+export type TryOnJob = {
+  id: string;
+  status: string;
+  provider?: string | null;
+  output_image_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  garment_item_ids: string[];
+  created_at: string;
+  completed_at?: string | null;
 };

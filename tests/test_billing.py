@@ -14,4 +14,7 @@ def test_plan_limits_follow_settings() -> None:
     assert plans[SubscriptionPlan.FREE].item_limit == 20
     assert plans[SubscriptionPlan.FREE].ai_analysis_limit == 5
     assert plans[SubscriptionPlan.PREMIUM].item_limit == 500
+    assert plans[SubscriptionPlan.PREMIUM].monthly_price == 699
+    assert "avatar_try_on" in plans[SubscriptionPlan.PREMIUM].features
+    assert "selection_editor" in plans[SubscriptionPlan.FREE].features
     assert plans[SubscriptionPlan.PRO].item_limit is None

@@ -1,9 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class ApiError(BaseModel):
@@ -15,6 +15,9 @@ class HealthResponse(BaseModel):
     status: str
     app_env: str
     missing_runtime_secrets: list[str]
+    ai_execution_mode: str
+    ai_analysis_provider: str
+    image_generation_provider: str
 
 
 class RootResponse(BaseModel):
@@ -96,6 +99,23 @@ class UploadStatus(BaseModel):
     upload_type: str | None = None
     progress: int = 0
     result_title: str | None = None
+
+
+class UploadSelectionPayload(BaseModel):
+    """Normalized crop metadata; the client sends only pixels inside this region."""
+
+    kind: Literal["full", "rectangle"] = "full"
+    source: Literal["default", "user"] = "default"
+    x: float = Field(default=0, ge=0, le=1)
+    y: float = Field(default=0, ge=0, le=1)
+    width: float = Field(default=1, gt=0, le=1)
+    height: float = Field(default=1, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "UploadSelectionPayload":
+        if self.x + self.width > 1.000001 or self.y + self.height > 1.000001:
+            raise ValueError("Selection must stay inside normalized image bounds.")
+        return self
 
 
 class ImageAssetRead(BaseModel):
@@ -266,6 +286,82 @@ class PurchaseSimulationRead(BaseModel):
 
 class PlanRead(BaseModel):
     code: str
+    title: str
+    monthly_price: Decimal
+    currency: str
     item_limit: int | None
     ai_analysis_limit: int | None
+    avatar_generation_limit: int
+    try_on_limit: int
     features: list[str]
+    pricing_status: str
+
+
+class BillingAccessRead(BaseModel):
+    enabled: bool
+    payments_enabled: bool
+    plan: str
+    source: str
+    expires_at: datetime | None
+    features: list[str]
+
+
+class PromoRedeemRequest(BaseModel):
+    code: str = Field(min_length=8, max_length=128)
+
+
+class PromoRedeemRead(BaseModel):
+    plan: str
+    expires_at: datetime
+    features: list[str]
+
+
+class AvatarMeasurementWrite(BaseModel):
+    code: Literal["height", "shoulders", "chest", "waist", "hips", "inseam"]
+    value: Decimal = Field(gt=0, le=300)
+    unit: Literal["cm"] = "cm"
+
+
+class AvatarMeasurementRead(AvatarMeasurementWrite):
+    source: str
+    confidence: Decimal | None = None
+
+
+class AvatarProfileUpdate(BaseModel):
+    consent: bool
+    consent_version: str = Field(default="2026-07", max_length=32)
+    description: str | None = Field(default=None, max_length=2000)
+    neutral_clothing: Literal["fitted_studio_basics"] = "fitted_studio_basics"
+    reference_upload_id: UUID | None = None
+    measurements: list[AvatarMeasurementWrite] = Field(default_factory=list, max_length=6)
+
+
+class AvatarProfileRead(BaseModel):
+    id: UUID
+    status: str
+    description: str | None
+    neutral_clothing: str
+    reference_image_id: UUID | None
+    generated_image_id: UUID | None
+    consent_version: str | None
+    consented_at: datetime | None
+    revoked_at: datetime | None
+    generation_error: str | None
+    generated_at: datetime | None
+    measurements: list[AvatarMeasurementRead]
+
+
+class TryOnCreate(BaseModel):
+    garment_item_ids: list[UUID] = Field(min_length=1, max_length=8)
+
+
+class TryOnRead(BaseModel):
+    id: UUID
+    status: str
+    provider: str | None
+    output_image_id: UUID | None
+    error_code: str | None
+    error_message: str | None
+    garment_item_ids: list[UUID]
+    created_at: datetime
+    completed_at: datetime | None

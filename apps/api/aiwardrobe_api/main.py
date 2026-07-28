@@ -12,7 +12,9 @@ from aiwardrobe_api.rate_limit import RateLimitMiddleware
 from aiwardrobe_api.routers import (
     ai,
     auth,
+    avatar,
     billing,
+    codex_runner,
     designer,
     health,
     items,
@@ -30,7 +32,7 @@ from aiwardrobe_api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_file_for("api"))
     production_errors = settings.production_startup_errors()
     if production_errors:
         raise RuntimeError("Production startup blocked by unsafe configuration: " + ", ".join(production_errors))
@@ -57,7 +59,9 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
     for router in (
         health.router,
+        codex_runner.router,
         auth.router,
+        avatar.router,
         uploads.router,
         items.router,
         looks.router,
@@ -84,6 +88,7 @@ def create_app() -> FastAPI:
             miniapp_url=settings.miniapp_public_url,
             api_groups=[
                 "auth",
+                "avatar",
                 "uploads",
                 "items",
                 "looks",

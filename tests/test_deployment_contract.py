@@ -41,3 +41,14 @@ def test_runtime_image_uses_non_root_user() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
     assert "USER appuser" in dockerfile
+
+
+def test_codex_runner_stays_on_the_trusted_host_instead_of_the_server_image() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    runner = Path("scripts/codex-runner.py").read_text(encoding="utf-8")
+
+    assert "@openai/codex" not in dockerfile
+    assert "CODEX_RUNNER_TOKEN" in compose
+    assert "/internal/codex-runner/claim" in runner
+    assert "CodexCliRunner" in runner

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -14,6 +15,8 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -74,6 +77,7 @@ class User(Base, TimestampMixin):
 
 class Role(Base):
     __tablename__ = "roles"
+    __table_args__ = (Index("uq_roles_user_role", "user_id", "role", unique=True),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -121,6 +125,20 @@ class Upload(Base, TimestampMixin):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     task_id: Mapped[str | None] = mapped_column(String(255), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ImageSelection(Base):
+    """User-confirmed image region that was sent to garment analysis."""
+
+    __tablename__ = "image_selections"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    upload_id: Mapped[UUID] = mapped_column(ForeignKey("uploads.id", ondelete="CASCADE"), unique=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="full")
+    source: Mapped[str] = mapped_column(String(32), default="default")
+    geometry: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class GarmentItem(Base, TimestampMixin):
@@ -437,6 +455,14 @@ class NotificationSetting(Base, TimestampMixin):
 
 class Subscription(Base, TimestampMixin):
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index(
+            "uq_subscriptions_active_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -448,8 +474,53 @@ class Subscription(Base, TimestampMixin):
     provider_subscription_id: Mapped[str | None] = mapped_column(String(255))
 
 
+class PromoCode(Base, TimestampMixin):
+    __tablename__ = "promo_codes"
+    __table_args__ = (
+        CheckConstraint("duration_hours > 0", name="ck_promo_codes_duration_positive"),
+        CheckConstraint("max_redemptions > 0", name="ck_promo_codes_limit_positive"),
+        CheckConstraint(
+            "redemption_count >= 0 AND redemption_count <= max_redemptions",
+            name="ck_promo_codes_redemption_count",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(32), default=SubscriptionPlan.PREMIUM.value)
+    duration_hours: Mapped[int] = mapped_column(default=24)
+    max_redemptions: Mapped[int] = mapped_column(default=1)
+    redemption_count: Mapped[int] = mapped_column(default=0)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+    __table_args__ = (
+        UniqueConstraint("promo_code_id", "user_id", name="uq_promo_redemption_code_user"),
+        CheckConstraint("expires_at > redeemed_at", name="ck_promo_redemptions_expiry"),
+        Index("ix_promo_redemptions_user_expiry", "user_id", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    promo_code_id: Mapped[UUID] = mapped_column(ForeignKey("promo_codes.id", ondelete="RESTRICT"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    plan: Mapped[str] = mapped_column(String(32))
+    redeemed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UsageLimit(Base, TimestampMixin):
     __tablename__ = "usage_limits"
+    __table_args__ = (
+        Index("uq_usage_limits_user_period_reset", "user_id", "period", "resets_at", unique=True),
+        CheckConstraint("item_count >= 0", name="ck_usage_limits_item_count"),
+        CheckConstraint("ai_analysis_count >= 0", name="ck_usage_limits_ai_count"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -464,6 +535,15 @@ class UsageLimit(Base, TimestampMixin):
 
 class Payment(Base, TimestampMixin):
     __tablename__ = "payments"
+    __table_args__ = (
+        Index(
+            "uq_payments_provider_event",
+            "provider",
+            "provider_payment_id",
+            unique=True,
+            postgresql_where=text("provider_payment_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -476,6 +556,71 @@ class Payment(Base, TimestampMixin):
     raw_event: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
 
 
+class AvatarProfile(Base, TimestampMixin):
+    __tablename__ = "avatar_profiles"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    description: Mapped[str | None] = mapped_column(Text)
+    neutral_clothing: Mapped[str] = mapped_column(String(64), default="fitted_studio_basics")
+    reference_image_id: Mapped[UUID | None] = mapped_column(ForeignKey("image_assets.id", ondelete="SET NULL"))
+    generated_image_id: Mapped[UUID | None] = mapped_column(ForeignKey("image_assets.id", ondelete="SET NULL"))
+    consent_version: Mapped[str | None] = mapped_column(String(32))
+    consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    generation_error: Mapped[str | None] = mapped_column(String(128))
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AvatarMeasurement(Base):
+    __tablename__ = "avatar_measurements"
+    __table_args__ = (
+        UniqueConstraint("avatar_profile_id", "code", name="uq_avatar_measurement_profile_code"),
+        CheckConstraint("value > 0", name="ck_avatar_measurements_value_positive"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    avatar_profile_id: Mapped[UUID] = mapped_column(ForeignKey("avatar_profiles.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(64))
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 3))
+    unit: Mapped[str] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(32), default="user")
+    confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+
+
+class TryOnJob(Base, TimestampMixin):
+    __tablename__ = "try_on_jobs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    avatar_profile_id: Mapped[UUID] = mapped_column(ForeignKey("avatar_profiles.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default=ProcessingStatus.CREATED.value, index=True)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    provider_job_id: Mapped[str | None] = mapped_column(String(255))
+    output_image_id: Mapped[UUID | None] = mapped_column(ForeignKey("image_assets.id", ondelete="SET NULL"))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TryOnItem(Base):
+    __tablename__ = "try_on_items"
+    __table_args__ = (Index("uq_try_on_items_job_order", "try_on_job_id", "sort_order", unique=True),)
+
+    try_on_job_id: Mapped[UUID] = mapped_column(ForeignKey("try_on_jobs.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[UUID] = mapped_column(ForeignKey("garment_items.id", ondelete="RESTRICT"), primary_key=True)
+    sort_order: Mapped[int] = mapped_column(default=0)
+
+
 Index("ix_items_user_category_status", GarmentItem.user_id, GarmentItem.category, GarmentItem.status)
 Index("ix_ai_requests_user_created", AiRequest.user_id, AiRequest.created_at)
+Index(
+    "uq_ai_requests_analysis_task",
+    AiRequest.task_id,
+    AiRequest.request_type,
+    unique=True,
+    postgresql_where=text("task_id IS NOT NULL AND request_type = 'analyze_image'"),
+)
 Index("ix_uploads_user_status", Upload.user_id, Upload.status)
+Index("ix_try_on_jobs_user_created", TryOnJob.user_id, TryOnJob.created_at)

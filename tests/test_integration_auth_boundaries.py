@@ -31,3 +31,5 @@ def test_observability_endpoints_are_public_integration() -> None:
     assert live.json()["status"] == "ok"
     assert metrics.status_code == 200
     assert "aiwardrobe_app_info" in metrics.text
+    assert "aiwardrobe_http_requests_total" in metrics.text
+    assert "aiwardrobe_http_request_duration_seconds" in metrics.text

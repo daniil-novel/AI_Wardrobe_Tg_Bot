@@ -23,6 +23,21 @@ def test_health_route_reports_runtime_secret_state() -> None:
     payload = response.json()
     assert payload["status"] == "ok"
     assert "missing_runtime_secrets" in payload
+    assert payload["ai_execution_mode"] == "api"
+    assert payload["ai_analysis_provider"] in {"openrouter", "unconfigured"}
+
+
+def test_ai_health_reports_capabilities_without_exposing_secrets() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/health/ai")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution_mode"] == "api"
+    assert payload["codex_runner_requested"] is False
+    assert payload["codex_runner_connected"] is False
+    assert "api_key" not in payload
 
 
 def test_core_endpoint_groups_are_available() -> None:
@@ -37,6 +52,8 @@ def test_core_endpoint_groups_are_available() -> None:
         "/wishlist": 401,
         "/weather?latitude=55.75&longitude=37.62": 401,
         "/billing/plans": 200,
+        "/billing/me": 401,
+        "/avatar/profile": 401,
         "/ai/usage": 401,
     }
     for path, expected_status in checks.items():

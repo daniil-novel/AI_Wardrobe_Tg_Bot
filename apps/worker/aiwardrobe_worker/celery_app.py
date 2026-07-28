@@ -1,9 +1,19 @@
+from typing import Any
+
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.logging import configure_logging
 from celery import Celery
+from celery.signals import setup_logging
 
 settings = get_settings()
-configure_logging(settings.log_level)
+configure_logging(settings.log_level, settings.log_file_for("worker"))
+
+
+@setup_logging.connect
+def _configure_worker_logging(**_kwargs: Any) -> None:
+    # Keep our root handlers (stdout + rotating file) instead of Celery's own setup.
+    configure_logging(settings.log_level, settings.log_file_for("worker"))
+
 
 celery_app = Celery(
     "aiwardrobe_worker",

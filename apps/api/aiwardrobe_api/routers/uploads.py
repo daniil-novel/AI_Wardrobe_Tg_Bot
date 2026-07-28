@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -6,16 +7,19 @@ from aiwardrobe_core.auth_service import upsert_telegram_user
 from aiwardrobe_core.config import get_settings
 from aiwardrobe_core.enums import ProcessingStatus, ProvenanceLabel, UploadSource
 from aiwardrobe_core.image_validation import ImageValidationError, validate_image_content
-from aiwardrobe_core.models import ImageAsset, Upload
+from aiwardrobe_core.models import ImageAsset, ImageSelection, Upload
 from aiwardrobe_core.schemas import (
     TelegramUploadRequest,
     UploadCompleteRequest,
     UploadInitRequest,
     UploadInitResponse,
+    UploadSelectionPayload,
     UploadStatus,
 )
 from aiwardrobe_core.storage import ObjectStorage, build_storage_key
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile, status
+from aiwardrobe_core.usage import UsageQuotaExceeded, reserve_billable_request
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,7 +115,7 @@ async def complete_upload(
     await session.flush()
     upload.original_image_id = image.id
     upload.status = ProcessingStatus.UPLOADED.value
-    await enqueue_upload_with_key(upload, payload.storage_key)
+    await enqueue_upload_with_key(session, upload, payload.storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -120,6 +124,7 @@ async def complete_upload(
 @router.post("/file", response_model=UploadStatus)
 async def upload_file(
     file: Annotated[UploadFile, File()],
+    selection_json: Annotated[str | None, Form()] = None,
     upload_type: str = "auto",
     user_id: UUID = CurrentUser,
     session: AsyncSession = DbSession,
@@ -146,8 +151,29 @@ async def upload_file(
     )
     session.add_all([image, upload])
     await session.flush()
-    upload.original_image_id = image.id
-    await enqueue_upload_with_key(upload, storage_key)
+    if selection_json:
+        try:
+            selection = UploadSelectionPayload.model_validate(json.loads(selection_json))
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid image selection metadata.",
+            ) from exc
+        session.add(
+            ImageSelection(
+                upload_id=upload.id,
+                user_id=user_id,
+                kind=selection.kind,
+                source=selection.source,
+                geometry={
+                    "x": selection.x,
+                    "y": selection.y,
+                    "width": selection.width,
+                    "height": selection.height,
+                },
+            )
+        )
+    await enqueue_upload_with_key(session, upload, storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -208,7 +234,7 @@ async def retry_upload(upload_id: UUID, user_id: UUID = CurrentUser, session: As
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload image is no longer available.")
     upload.error_code = None
     upload.error_message = None
-    await enqueue_upload_with_key(upload, image.storage_key)
+    await enqueue_upload_with_key(session, upload, image.storage_key)
     await session.commit()
     await session.refresh(upload)
     return status_from_upload(upload)
@@ -225,7 +251,23 @@ async def delete_upload(
     return {"id": upload_id, "status": "deleted"}
 
 
-async def enqueue_upload_with_key(upload: Upload, storage_key: str) -> None:
+async def enqueue_upload_with_key(session: AsyncSession, upload: Upload, storage_key: str) -> None:
+    settings = get_settings()
+    try:
+        usage_request = await reserve_billable_request(
+            session,
+            upload.user_id,
+            upload.id,
+            "analyze_image",
+            settings.ai_analysis_model,
+            provider=settings.ai_analysis_provider,
+            settings=settings,
+        )
+    except UsageQuotaExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Monthly AI analysis quota exceeded.",
+        ) from exc
     try:
         from aiwardrobe_worker.tasks import analyze_upload
 
@@ -234,6 +276,9 @@ async def enqueue_upload_with_key(upload: Upload, storage_key: str) -> None:
         upload.status = ProcessingStatus.FAILED.value
         upload.error_code = "queue_unavailable"
         upload.error_message = exc.__class__.__name__
+        usage_request.status = ProcessingStatus.FAILED.value
+        usage_request.error_code = "queue_unavailable"
+        await session.commit()
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Queue is unavailable.") from exc
     upload.task_id = str(task.id)
     upload.status = ProcessingStatus.QUEUED.value

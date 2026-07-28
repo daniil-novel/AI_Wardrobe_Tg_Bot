@@ -20,6 +20,8 @@ from aiwardrobe_core.llm_gateway import LlmGateway, LlmGatewayError
 from aiwardrobe_core.logging import hash_identifier
 from aiwardrobe_core.models import (
     AiRequest,
+    AvatarMeasurement,
+    AvatarProfile,
     GarmentItem,
     ImageAsset,
     LookCard,
@@ -27,10 +29,13 @@ from aiwardrobe_core.models import (
     OutfitCard,
     OutfitItem,
     PrivacyReceipt,
+    TryOnItem,
+    TryOnJob,
     Upload,
     User,
 )
 from aiwardrobe_core.storage import ObjectStorage, build_storage_key
+from aiwardrobe_core.usage import UsageQuotaExceeded, finalize_billable_request, reserve_billable_request
 from celery.exceptions import Ignore
 from celery.utils.log import get_task_logger
 from sqlalchemy import select, update
@@ -61,8 +66,8 @@ def find_possible_duplicate(
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.openrouter_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required; mock AI mode is disabled.")
+    if not settings.ai_analysis_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required in API mode; mock AI mode is disabled.")
 
     async def run() -> dict[str, Any]:
         session_factory = get_session_factory()
@@ -162,7 +167,7 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                                 garment.title, garment.category, garment.main_color, existing_items
                             )
                             attributes = {
-                                **garment.designer_attributes,
+                                **garment.designer_attributes.model_dump(mode="json"),
                                 "brand": garment.brand,
                                 "model_name": garment.model_name,
                                 "visual_identifiers": garment.visual_identifiers,
@@ -221,7 +226,8 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                 receipt = PrivacyReceipt(
                     user_id=upload.user_id,
                     upload_id=upload.id,
-                    model_used=settings.openrouter_model_image,
+                    ai_provider_used=gateway.last_provider or settings.ai_analysis_provider,
+                    model_used=gateway.last_model or settings.ai_analysis_model,
                     original_saved=True,
                     research_used=False,
                     training_allowed=False,
@@ -229,18 +235,15 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                 upload.status = ProcessingStatus.COMPLETED.value
                 upload.completed_at = datetime.now(UTC)
                 upload.confidence = Decimal(str(max((g.confidence for g in garments), default=0)))
-                session.add_all(
-                    [
-                        receipt,
-                        AiRequest(
-                            user_id=upload.user_id,
-                            task_id=upload.id,
-                            model=settings.openrouter_model_image,
-                            request_type="analyze_image",
-                            status=ProcessingStatus.COMPLETED.value,
-                            cost_usd=Decimal("0"),
-                        ),
-                    ]
+                session.add(receipt)
+                await finalize_billable_request(
+                    session,
+                    upload.user_id,
+                    upload.id,
+                    "analyze_image",
+                    gateway.last_model or settings.ai_analysis_model,
+                    ProcessingStatus.COMPLETED.value,
+                    provider=gateway.last_provider or settings.ai_analysis_provider,
                 )
 
                 # TZ: tell the user which garments could not become full product cards.
@@ -288,16 +291,15 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
                         error_message=str(exc)[:1000],
                     )
                 )
-                session.add(
-                    AiRequest(
-                        user_id=user_id,
-                        task_id=UUID(upload_id),
-                        model=settings.openrouter_model_image,
-                        request_type="analyze_image",
-                        status=ProcessingStatus.FAILED.value,
-                        error_code=exc.__class__.__name__,
-                        cost_usd=Decimal("0"),
-                    )
+                await finalize_billable_request(
+                    session,
+                    user_id,
+                    UUID(upload_id),
+                    "analyze_image",
+                    gateway.last_model or settings.ai_analysis_model,
+                    ProcessingStatus.FAILED.value,
+                    provider=gateway.last_provider or settings.ai_analysis_provider,
+                    error_code=exc.__class__.__name__,
                 )
                 await session.commit()
                 raise
@@ -381,6 +383,20 @@ def transfer_telegram_upload(self: Any, upload_id: str) -> dict[str, Any]:
                 await fail_upload(upload, exc.code, exc.message, session)
                 raise Ignore() from exc
 
+            try:
+                await reserve_billable_request(
+                    session,
+                    upload.user_id,
+                    upload.id,
+                    "analyze_image",
+                    settings.ai_analysis_model,
+                    provider=settings.ai_analysis_provider,
+                    settings=settings,
+                )
+            except UsageQuotaExceeded as exc:
+                await fail_upload(upload, "quota_exceeded", str(exc), session)
+                raise Ignore() from exc
+
             storage_key = build_storage_key(upload.user_id, "originals", file_path.split("/")[-1])
             await ObjectStorage(settings).put_bytes(storage_key, content, content_type)
 
@@ -421,8 +437,8 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
         raise ValueError("Research requires text description; private photos must not be sent to web search.")
 
     settings = get_settings()
-    if not settings.openrouter_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required for item research.")
+    if not settings.ai_analysis_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required for item research in API mode.")
 
     async def run() -> dict[str, Any]:
         session_factory = get_session_factory()
@@ -432,7 +448,8 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
             if item is None:
                 raise Ignore()
 
-            research = await LlmGateway(settings).generate_text_json(
+            gateway = LlmGateway(settings)
+            research = await gateway.generate_text_json(
                 (
                     "Research this clothing item using only the supplied text. Return JSON with "
                     "summary:string and sources:array of source labels or urls. Do not infer private "
@@ -449,7 +466,8 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
                 AiRequest(
                     user_id=item.user_id,
                     task_id=item.id,
-                    model=settings.openrouter_model_text,
+                    provider=gateway.last_provider or settings.ai_analysis_provider,
+                    model=gateway.last_model or settings.ai_analysis_model,
                     request_type="research_item",
                     status=ProcessingStatus.COMPLETED.value,
                     cost_usd=Decimal("0"),
@@ -471,8 +489,8 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.openrouter_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required for outfit generation.")
+    if not settings.ai_analysis_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required for outfit generation in API mode.")
 
     async def run() -> dict[str, Any]:
         session_factory = get_session_factory()
@@ -498,7 +516,8 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
                 }
                 for item in items
             ]
-            generated = await LlmGateway(settings).generate_text_json(
+            gateway = LlmGateway(settings)
+            generated = await gateway.generate_text_json(
                 (
                     "Generate one practical outfit from this wardrobe and context. Return JSON with "
                     "title:string, explanation:string, score:number, item_ids:array of selected ids. "
@@ -514,7 +533,10 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
                 user_id=UUID(user_id),
                 title=str(generated.get("title") or "Outfit"),
                 generation_context=context,
-                designer_reasoning={"provider": "openrouter", "selected_item_count": len(selected_items)},
+                designer_reasoning={
+                    "provider": gateway.last_provider or settings.ai_analysis_provider,
+                    "selected_item_count": len(selected_items),
+                },
                 explanation=str(generated.get("explanation") or ""),
                 score=Decimal(str(generated.get("score") or "75")),
                 comfort_score=Decimal(str(generated.get("comfort_score") or generated.get("score") or "75")),
@@ -527,7 +549,8 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
                 AiRequest(
                     user_id=UUID(user_id),
                     task_id=outfit.id,
-                    model=settings.openrouter_model_text,
+                    provider=gateway.last_provider or settings.ai_analysis_provider,
+                    model=gateway.last_model or settings.ai_analysis_model,
                     request_type="generate_outfit",
                     status=ProcessingStatus.COMPLETED.value,
                     cost_usd=Decimal("0"),
@@ -561,8 +584,8 @@ DESIGNER_CHAT_SCHEMA_PROMPT = (
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=2)
 def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.openrouter_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required for designer chat.")
+    if not settings.ai_analysis_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required for designer chat in API mode.")
 
     message = str(payload.get("message", "")).strip()
     if not message:
@@ -607,7 +630,8 @@ def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str,
                 + "\n".join(context_lines)
                 + f"\n\nСообщение пользователя: {message}"
             )
-            generated = await LlmGateway(settings).generate_text_json(prompt, "DesignerChat")
+            gateway = LlmGateway(settings)
+            generated = await gateway.generate_text_json(prompt, "DesignerChat")
 
             reply = str(generated.get("reply") or "Расскажите чуть подробнее, что планируете сегодня?")
             outfit_data = generated.get("outfit")
@@ -629,7 +653,10 @@ def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str,
                             "scenario": payload.get("scenario"),
                             "weather": payload.get("weather_context"),
                         },
-                        designer_reasoning={"provider": "openrouter", "selected_item_count": len(selected_items)},
+                        designer_reasoning={
+                            "provider": gateway.last_provider or settings.ai_analysis_provider,
+                            "selected_item_count": len(selected_items),
+                        },
                         explanation=str(outfit_data.get("explanation") or ""),
                         score=Decimal(str(outfit_data.get("score") or "75")),
                         comfort_score=Decimal(
@@ -646,7 +673,8 @@ def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str,
                 AiRequest(
                     user_id=UUID(user_id),
                     task_id=UUID(outfit_id) if outfit_id else UUID(user_id),
-                    model=settings.openrouter_model_text,
+                    provider=gateway.last_provider or settings.ai_analysis_provider,
+                    model=gateway.last_model or settings.ai_analysis_model,
                     request_type="designer_chat",
                     status=ProcessingStatus.COMPLETED.value,
                     cost_usd=Decimal("0"),
@@ -666,6 +694,215 @@ def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str,
     logger.info(
         "Designer chat completed",
         extra={"user_id_hash": hash_identifier(user_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
+    )
+    return result
+
+
+def _inline_image(content: bytes) -> str:
+    content_type = detect_image_content_type(content) or "image/png"
+    return f"data:{content_type};base64,{b64encode(content).decode()}"
+
+
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=2)
+def generate_avatar_image(self: Any, profile_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.image_generation_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required for avatar image generation.")
+
+    async def run() -> dict[str, Any]:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            profile = await session.get(AvatarProfile, UUID(profile_id))
+            if profile is None:
+                raise ValueError("Avatar profile not found.")
+            if profile.status == ProcessingStatus.COMPLETED.value and profile.generated_image_id:
+                return {"profile_id": profile_id, "status": "already_completed"}
+            if profile.consented_at is None or profile.revoked_at is not None or profile.reference_image_id is None:
+                raise ValueError("Avatar consent or reference image is missing.")
+            reference = await session.get(ImageAsset, profile.reference_image_id)
+            if reference is None or reference.user_id != profile.user_id:
+                raise ValueError("Avatar reference image not found.")
+            measurement_result = await session.execute(
+                select(AvatarMeasurement).where(AvatarMeasurement.avatar_profile_id == profile.id)
+            )
+            measurements = {
+                measurement.code: f"{measurement.value} {measurement.unit}"
+                for measurement in measurement_result.scalars()
+            }
+            profile.status = ProcessingStatus.PROCESSING.value
+            profile.generation_error = None
+            await session.commit()
+            try:
+                storage = ObjectStorage(settings)
+                reference_content = await storage.get_bytes(reference.storage_key)
+                prompt = (
+                    "Create a respectful full-body virtual fitting avatar of the same adult person in the reference. "
+                    "Preserve visible identity, height, build, and body proportions without slimming, beautifying, "
+                    "or changing age, skin tone, disability, or body shape. Use a neutral warm-gray studio background, "
+                    "front-facing relaxed stance, even soft lighting, and opaque fitted studio basics: a crew-neck "
+                    "long-sleeve top and ankle-length leggings in matte medium gray. "
+                    "The clothing must be non-revealing "
+                    "and show the silhouette without sexualization. Do not add accessories or text. "
+                    f"User-provided neutral description: {profile.description or 'none'}. "
+                    f"User-provided measurements: {measurements or 'none'}."
+                )
+                output = await LlmGateway(settings).generate_composite_image(
+                    [_inline_image(reference_content)],
+                    prompt,
+                )
+                storage_key = build_storage_key(profile.user_id, "avatars", f"{profile.id}.png")
+                await storage.put_bytes(storage_key, output, "image/png")
+                generated = ImageAsset(
+                    user_id=profile.user_id,
+                    source_type="avatar",
+                    storage_key=storage_key,
+                    provenance_label=ProvenanceLabel.GENERATED_REFERENCE.value,
+                    generated_prompt="Consented neutral avatar generation.",
+                )
+                session.add(generated)
+                await session.flush()
+                profile.generated_image_id = generated.id
+                profile.status = ProcessingStatus.COMPLETED.value
+                profile.generated_at = datetime.now(UTC)
+                await finalize_billable_request(
+                    session,
+                    profile.user_id,
+                    profile.id,
+                    "generate_avatar",
+                    settings.openrouter_model_image_gen,
+                    ProcessingStatus.COMPLETED.value,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                )
+                await session.commit()
+                return {"profile_id": profile_id, "status": ProcessingStatus.COMPLETED.value}
+            except Exception as exc:
+                profile.status = ProcessingStatus.FAILED.value
+                profile.generation_error = exc.__class__.__name__
+                await finalize_billable_request(
+                    session,
+                    profile.user_id,
+                    profile.id,
+                    "generate_avatar",
+                    settings.openrouter_model_image_gen,
+                    ProcessingStatus.FAILED.value,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    error_code=exc.__class__.__name__,
+                )
+                await session.commit()
+                raise
+
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Avatar generation completed",
+        extra={
+            "profile_id_hash": hash_identifier(profile_id),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        },
+    )
+    return result
+
+
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=2)
+def generate_virtual_try_on(self: Any, job_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.image_generation_enabled:
+        raise RuntimeError("OPENROUTER_API_KEY is required for virtual try-on image generation.")
+
+    async def run() -> dict[str, Any]:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            job = await session.get(TryOnJob, UUID(job_id))
+            if job is None:
+                raise ValueError("Try-on job not found.")
+            if job.status == ProcessingStatus.COMPLETED.value and job.output_image_id:
+                return {"job_id": job_id, "status": "already_completed"}
+            profile = await session.get(AvatarProfile, job.avatar_profile_id)
+            if profile is None or profile.generated_image_id is None or profile.revoked_at is not None:
+                raise ValueError("Generated avatar is unavailable.")
+            avatar_image = await session.get(ImageAsset, profile.generated_image_id)
+            if avatar_image is None or avatar_image.user_id != job.user_id:
+                raise ValueError("Generated avatar image is unavailable.")
+            item_result = await session.execute(
+                select(TryOnItem, GarmentItem)
+                .join(GarmentItem, GarmentItem.id == TryOnItem.item_id)
+                .where(TryOnItem.try_on_job_id == job.id, GarmentItem.user_id == job.user_id)
+                .order_by(TryOnItem.sort_order)
+            )
+            garment_rows = list(item_result.all())
+            if not garment_rows:
+                raise ValueError("Try-on garments are unavailable.")
+            job.status = ProcessingStatus.PROCESSING.value
+            job.error_code = None
+            job.error_message = None
+            await session.commit()
+            try:
+                storage = ObjectStorage(settings)
+                source_urls = [_inline_image(await storage.get_bytes(avatar_image.storage_key))]
+                garment_titles: list[str] = []
+                for _, garment in garment_rows:
+                    image_id = garment.processed_image_id or garment.original_image_id
+                    image = await session.get(ImageAsset, image_id) if image_id else None
+                    if image is None or image.user_id != job.user_id:
+                        raise ValueError(f"Garment image unavailable for item {garment.id}.")
+                    source_urls.append(_inline_image(await storage.get_bytes(image.storage_key)))
+                    garment_titles.append(garment.title)
+                prompt = (
+                    "The first image is a consented full-body avatar. The remaining images are garment references. "
+                    "Dress the same avatar in exactly those garments while preserving face, identity, height, build, "
+                    "body proportions, pose, camera, and neutral background. Do not slim, reshape, beautify, or expose "
+                    "the body. Keep realistic layering and fabric boundaries. Return one full-body fitting preview "
+                    f"without text. Garments: {garment_titles}."
+                )
+                output = await LlmGateway(settings).generate_composite_image(source_urls, prompt)
+                storage_key = build_storage_key(job.user_id, "try-ons", f"{job.id}.png")
+                await storage.put_bytes(storage_key, output, "image/png")
+                generated = ImageAsset(
+                    user_id=job.user_id,
+                    source_type="try_on",
+                    storage_key=storage_key,
+                    provenance_label=ProvenanceLabel.GENERATED_REFERENCE.value,
+                    generated_prompt="Consented virtual try-on generation.",
+                )
+                session.add(generated)
+                await session.flush()
+                job.output_image_id = generated.id
+                job.status = ProcessingStatus.COMPLETED.value
+                job.completed_at = datetime.now(UTC)
+                await finalize_billable_request(
+                    session,
+                    job.user_id,
+                    job.id,
+                    "virtual_try_on",
+                    settings.openrouter_model_image_gen,
+                    ProcessingStatus.COMPLETED.value,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                )
+                await session.commit()
+                return {"job_id": job_id, "status": ProcessingStatus.COMPLETED.value}
+            except Exception as exc:
+                job.status = ProcessingStatus.FAILED.value
+                job.error_code = exc.__class__.__name__
+                job.error_message = "Virtual try-on generation failed."
+                job.completed_at = datetime.now(UTC)
+                await finalize_billable_request(
+                    session,
+                    job.user_id,
+                    job.id,
+                    "virtual_try_on",
+                    settings.openrouter_model_image_gen,
+                    ProcessingStatus.FAILED.value,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    error_code=exc.__class__.__name__,
+                )
+                await session.commit()
+                raise
+
+    started = time.perf_counter()
+    result = asyncio.run(run())
+    logger.info(
+        "Virtual try-on completed",
+        extra={"job_id_hash": hash_identifier(job_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
     )
     return result
 

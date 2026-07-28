@@ -5,7 +5,7 @@ def test_miniapp_has_expected_entrypoints_and_tabs() -> None:
     app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
     package_file = Path("apps/miniapp/package.json").read_text(encoding="utf-8")
 
-    for label in ("Сегодня", "Гардероб", "Добавить", "Дизайнер", "Избранное"):
+    for label in ("Сегодня", "Гардероб", "Добавить", "Дизайнер", "Избранное", "Студия"):
         assert label in app_file or label in Path("apps/miniapp/src/components.tsx").read_text(encoding="utf-8")
 
     assert '"build": "tsc -b && vite build"' in package_file
@@ -17,10 +17,14 @@ def test_miniapp_upload_and_buttons_are_wired_to_actions() -> None:
 
     for expected in (
         'type="file"',
-        "uploadPhoto(file, mode)",
+        "uploadPhoto(uploadFile, mode, confirmedSelection)",
         "getUploadStatus(upload.id)",
         "retryUpload",
         "deleteUpload",
+        "cropImageFile",
+        "selection-stage",
+        "Распознать выделенное",
+        "onPointerDown={handleSelectionStart}",
     ):
         assert expected in app_file
 
@@ -34,6 +38,7 @@ def test_miniapp_upload_and_buttons_are_wired_to_actions() -> None:
 
     assert "/uploads/file" in api_file
     assert "FormData" in api_file
+    assert 'body.append("selection_json"' in api_file
 
 
 def test_miniapp_has_weather_and_scenario_chat() -> None:
@@ -56,7 +61,8 @@ def test_miniapp_uses_real_item_images_health_and_designer_chat() -> None:
         "getWardrobeItemImageObjectUrl",
         "getWardrobeHealth",
         "sendDesignerChat",
-        "Чат с дизайнером",
+        "AI-стилист",
+        "designerQuickPrompts",
         "tomorrowOutfit",
     ):
         assert expected in app_file or expected in api_file
@@ -67,12 +73,33 @@ def test_miniapp_uses_real_item_images_health_and_designer_chat() -> None:
     assert "<img src={item.imageUrl}" in component_file
 
 
+def test_miniapp_has_avatar_try_on_subscription_and_open_builds() -> None:
+    app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
+    api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
+    package_file = Path("apps/miniapp/package.json").read_text(encoding="utf-8")
+
+    for expected in (
+        "StudioScreen",
+        "Аватар и примерка",
+        "saveAvatarProfile",
+        "generateAvatar",
+        "createTryOn",
+        "redeemPromoCode",
+        "provider_not_configured",
+    ):
+        assert expected in app_file or expected in api_file
+
+    assert '"build:open"' in package_file
+    assert '"build:subscriptions"' in package_file
+
+
 def test_miniapp_does_not_use_demo_wardrobe_as_runtime_fallback() -> None:
     app_file = Path("apps/miniapp/src/App.tsx").read_text(encoding="utf-8")
     api_file = Path("apps/miniapp/src/api.ts").read_text(encoding="utf-8")
 
     assert "todayOutfit" not in app_file
-    assert "garments" not in app_file
+    assert "const garments =" not in app_file
+    assert "demoGarments" not in app_file
     assert "listWardrobeItems" in api_file
     assert "listOutfits" in api_file
 

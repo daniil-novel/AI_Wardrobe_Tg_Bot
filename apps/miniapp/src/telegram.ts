@@ -5,6 +5,7 @@ export type TelegramWebApp = {
   colorScheme?: "light" | "dark";
   themeParams?: Record<string, string>;
   viewportStableHeight?: number;
+  isVersionAtLeast?: (version: string) => boolean;
   MainButton?: {
     setText: (text: string) => void;
     show: () => void;
@@ -33,6 +34,12 @@ declare global {
 
 export function getTelegramWebApp(): TelegramWebApp | undefined {
   return window.Telegram?.WebApp;
+}
+
+export function getHapticFeedback(
+  webApp: TelegramWebApp | undefined = getTelegramWebApp(),
+): TelegramWebApp["HapticFeedback"] | undefined {
+  return webApp?.isVersionAtLeast?.("6.1") ? webApp.HapticFeedback : undefined;
 }
 
 export function confirmDialog(message: string, callback: (confirmed: boolean) => void): void {

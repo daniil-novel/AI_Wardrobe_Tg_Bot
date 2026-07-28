@@ -34,6 +34,7 @@ def test_production_startup_allows_explicit_runtime_secrets() -> None:
         telegram_webhook_secret="webhook-secret",
         jwt_secret_key="a" * 64,
         openrouter_api_key="openrouter-secret",
+        promo_hash_secret="promo-secret",
         database_url="postgresql+asyncpg://user:strong-password@postgres:5432/db",
         sync_database_url="postgresql+psycopg://user:strong-password@postgres:5432/db",
         s3_access_key_id="prod-access-key",
@@ -41,6 +42,25 @@ def test_production_startup_allows_explicit_runtime_secrets() -> None:
     )
 
     assert settings.production_startup_errors() == []
+
+
+def test_production_hybrid_mode_requires_a_strong_runner_token() -> None:
+    settings = Settings(
+        app_env="production",
+        ai_execution_mode="hybrid",
+        codex_runner_token="short",
+        telegram_bot_token="123456:real-token",
+        telegram_webhook_secret="webhook-secret",
+        jwt_secret_key="a" * 64,
+        openrouter_api_key="openrouter-secret",
+        promo_hash_secret="promo-secret",
+        database_url="postgresql+asyncpg://user:strong-password@postgres:5432/db",
+        sync_database_url="postgresql+psycopg://user:strong-password@postgres:5432/db",
+        s3_access_key_id="prod-access-key",
+        s3_secret_access_key="prod-secret-key",
+    )
+
+    assert "CODEX_RUNNER_TOKEN" in settings.production_startup_errors()
 
 
 def test_upload_validation_rejects_spoofed_image_content() -> None:

@@ -17,7 +17,9 @@ class Base(DeclarativeBase):
 
 def create_engine(settings: Settings | None = None) -> AsyncEngine:
     resolved = settings or get_settings()
-    return create_async_engine(resolved.database_url, pool_pre_ping=True)
+    # Bursts of parallel requests (wardrobe grid images + rapid deletes) exceed
+    # the default pool of 5 and stall waiting for a free connection.
+    return create_async_engine(resolved.database_url, pool_pre_ping=True, pool_size=10, max_overflow=20)
 
 
 _engine: AsyncEngine | None = None

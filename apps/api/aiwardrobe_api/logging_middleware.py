@@ -7,6 +7,8 @@ from aiwardrobe_core.security import decode_access_token
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from aiwardrobe_api.metrics import record_http_request
+
 logger = structlog.get_logger(__name__)
 
 
@@ -19,7 +21,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
-            duration_ms = int((time.perf_counter() - start) * 1000)
+            duration_seconds = time.perf_counter() - start
+            duration_ms = int(duration_seconds * 1000)
+            record_http_request(request.method, self._route_template(request), 500, duration_seconds)
             logger.exception(
                 "http.request.failed",
                 request_id=request_id,
@@ -30,7 +34,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
             raise
 
-        duration_ms = int((time.perf_counter() - start) * 1000)
+        duration_seconds = time.perf_counter() - start
+        duration_ms = int(duration_seconds * 1000)
+        record_http_request(
+            request.method,
+            self._route_template(request),
+            response.status_code,
+            duration_seconds,
+        )
         response.headers["X-Request-ID"] = request_id
         logger.info(
             "http.request.completed",
@@ -53,3 +64,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         except Exception:
             return None
         return hash_identifier(str(user_id))
+
+    @staticmethod
+    def _route_template(request: Request) -> str:
+        route = request.scope.get("route")
+        path = getattr(route, "path", None)
+        return str(path) if path else request.url.path

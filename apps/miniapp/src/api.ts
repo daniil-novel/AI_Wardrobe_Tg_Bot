@@ -1,10 +1,16 @@
 import { getTelegramWebApp } from "./telegram";
 import type {
+  AvatarMeasurement,
+  AvatarProfile,
+  BillingAccess,
+  BillingPlan,
   DesignerChatReply,
   DesignerResult,
   DesignerToolKey,
   GarmentCard,
+  ImageSelection,
   OutfitCard,
+  TryOnJob,
   UploadStatus,
   WardrobeHealth,
   WeatherSummary,
@@ -166,9 +172,16 @@ async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = 
   return response;
 }
 
-export async function uploadPhoto(file: File, uploadType: string): Promise<UploadStatus> {
+export async function uploadPhoto(
+  file: File,
+  uploadType: string,
+  selection?: ImageSelection,
+): Promise<UploadStatus> {
   const body = new FormData();
   body.append("file", file);
+  if (selection) {
+    body.append("selection_json", JSON.stringify(selection));
+  }
   const response = await authenticatedFetch(`${apiBaseUrl}/uploads/file?upload_type=${encodeURIComponent(uploadType)}`, {
     method: "POST",
     body,
@@ -347,16 +360,46 @@ export async function deleteWardrobeItem(itemId: string): Promise<void> {
   await readJson<{ id: string; status: string }>(response);
 }
 
+const itemImageCache = new Map<string, string>();
+
 export async function getWardrobeItemImageObjectUrl(itemId: string): Promise<string | undefined> {
-  const response = await authenticatedFetch(`${apiBaseUrl}/items/${itemId}/image`);
-  if (response.status === 404) {
-    return undefined;
+  const cached = itemImageCache.get(itemId);
+  if (cached) {
+    return cached;
   }
+  const response = await authenticatedFetch(`${apiBaseUrl}/items/${itemId}/image`);
   if (!response.ok) {
     return undefined;
   }
   const blob = await response.blob();
-  return URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  itemImageCache.set(itemId, url);
+  return url;
+}
+
+export function evictItemImage(itemId: string): void {
+  const url = itemImageCache.get(itemId);
+  if (url) {
+    URL.revokeObjectURL(url);
+    itemImageCache.delete(itemId);
+  }
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function workerLoop(): Promise<void> {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await task(items[current]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, workerLoop));
+  return results;
 }
 
 export async function getWardrobeHealth(): Promise<WardrobeHealth> {
@@ -522,4 +565,91 @@ export async function sendDesignerChat(payload: {
     body: JSON.stringify(payload),
   });
   return readJson<DesignerChatReply>(response);
+}
+
+export async function listBillingPlans(): Promise<BillingPlan[]> {
+  const response = await fetch(`${apiBaseUrl}/billing/plans`);
+  return readJson<BillingPlan[]>(response);
+}
+
+export async function getBillingAccess(): Promise<BillingAccess> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/billing/me`);
+  return readJson<BillingAccess>(response);
+}
+
+export async function redeemPromoCode(code: string): Promise<{ plan: string; expires_at: string; features: string[] }> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/billing/promos/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  return readJson<{ plan: string; expires_at: string; features: string[] }>(response);
+}
+
+export async function getAvatarProfile(): Promise<AvatarProfile | null> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/profile`);
+  if (response.status === 404) {
+    return null;
+  }
+  return readJson<AvatarProfile>(response);
+}
+
+export async function saveAvatarProfile(payload: {
+  consent: boolean;
+  description?: string;
+  reference_upload_id?: string;
+  measurements: AvatarMeasurement[];
+}): Promise<AvatarProfile> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      consent_version: "2026-07",
+      neutral_clothing: "fitted_studio_basics",
+    }),
+  });
+  return readJson<AvatarProfile>(response);
+}
+
+export async function revokeAvatarProfile(): Promise<void> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/profile`, { method: "DELETE" });
+  if (!response.ok) {
+    await readJson<unknown>(response);
+  }
+}
+
+export async function generateAvatar(): Promise<AvatarProfile> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/generate`, { method: "POST" });
+  return readJson<AvatarProfile>(response);
+}
+
+export async function createTryOn(garmentItemIds: string[]): Promise<TryOnJob> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/try-ons`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ garment_item_ids: garmentItemIds }),
+  });
+  return readJson<TryOnJob>(response);
+}
+
+export async function getTryOn(jobId: string): Promise<TryOnJob> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/avatar/try-ons/${jobId}`);
+  return readJson<TryOnJob>(response);
+}
+
+async function imageObjectUrl(path: string): Promise<string | undefined> {
+  const response = await authenticatedFetch(`${apiBaseUrl}${path}`);
+  if (!response.ok) {
+    return undefined;
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
+export async function getAvatarImageObjectUrl(): Promise<string | undefined> {
+  return imageObjectUrl("/avatar/image");
+}
+
+export async function getTryOnImageObjectUrl(jobId: string): Promise<string | undefined> {
+  return imageObjectUrl(`/avatar/try-ons/${jobId}/image`);
 }

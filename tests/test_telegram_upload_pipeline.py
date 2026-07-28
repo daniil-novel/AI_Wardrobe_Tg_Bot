@@ -134,10 +134,14 @@ def test_transfer_task_moves_telegram_file_to_storage(monkeypatch: pytest.Monkey
         stored["key"] = storage_key
         stored["content_type"] = content_type
 
+    async def fake_reserve(*args: Any, **kwargs: Any) -> None:
+        return None
+
     monkeypatch.setattr("aiwardrobe_worker.tasks.get_settings", lambda: Settings(telegram_bot_token="123:abc"))
     monkeypatch.setattr("aiwardrobe_worker.tasks.get_session_factory", lambda: lambda: session)
     monkeypatch.setattr("aiwardrobe_worker.tasks.httpx.AsyncClient", FakeHttpClient)
     monkeypatch.setattr("aiwardrobe_core.storage.ObjectStorage.put_bytes", fake_put_bytes)
+    monkeypatch.setattr("aiwardrobe_worker.tasks.reserve_billable_request", fake_reserve)
     monkeypatch.setattr("aiwardrobe_worker.tasks.analyze_upload.delay", lambda *args: FakeTask())
 
     result = transfer_telegram_upload.run(str(upload.id))

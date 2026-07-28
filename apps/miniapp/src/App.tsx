@@ -1,17 +1,35 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Bot,
+  Check,
   CloudRain,
   CloudSun,
+  Crop,
+  Crown,
   Heart,
   Loader2,
   MapPin,
   MessageCircle,
+  Redo2,
+  RotateCcw,
+  Ruler,
+  ScanLine,
   Search,
   Send,
   Sparkles,
+  Ticket,
   Thermometer,
   Trash2,
+  Undo2,
   Umbrella,
   Upload,
   Wind,
@@ -19,34 +37,53 @@ import {
 
 import {
   authenticateWithTelegram,
+  createTryOn,
   deleteOutfit,
   deleteUpload,
   deleteWardrobeItem,
+  evictItemImage,
   favoriteOutfit,
+  generateAvatar,
+  getAvatarImageObjectUrl,
+  getAvatarProfile,
+  getBillingAccess,
+  getTryOn,
+  getTryOnImageObjectUrl,
   getWardrobeHealth,
   getWardrobeItemImageObjectUrl,
   getWeather,
   getUploadStatus,
   hasAccessToken,
+  listBillingPlans,
   listOutfits,
   listWardrobeItems,
+  mapWithConcurrency,
   recommendOutfit,
   recommendWithAnchors,
+  redeemPromoCode,
   retryUpload,
+  revokeAvatarProfile,
   runDesignerTool,
   selectOutfit,
   sendDesignerChat,
+  saveAvatarProfile,
   uploadPhoto,
 } from "./api";
 import { BottomNav, InteractiveGarmentTile, ScoreBadge, SectionHead, SmartCard } from "./components";
 import { quickScenarios } from "./data";
-import { confirmDialog, getTelegramWebApp } from "./telegram";
+import { confirmDialog, getHapticFeedback, getTelegramWebApp } from "./telegram";
 import type {
+  AvatarMeasurement,
+  AvatarProfile,
+  BillingAccess,
+  BillingPlan,
   DesignerResult,
   DesignerToolKey,
   GarmentCard,
+  ImageSelection,
   OutfitCard,
   TabKey,
+  TryOnJob,
   UploadStatus,
   WardrobeHealth,
   WeatherSummary,
@@ -63,6 +100,57 @@ const uploadModes: Array<{ key: UploadMode; label: string }> = [
 ];
 
 const MOSCOW = { latitude: 55.7558, longitude: 37.6173 };
+const SUBSCRIPTIONS_UI_ENABLED = import.meta.env.VITE_SUBSCRIPTIONS_ENABLED !== "false";
+const DEFAULT_PERSON_SELECTION: ImageSelection = {
+  kind: "rectangle",
+  source: "default",
+  x: 0.18,
+  y: 0.06,
+  width: 0.64,
+  height: 0.9,
+};
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+async function cropImageFile(file: File, selection: ImageSelection): Promise<File> {
+  if (selection.kind === "full") {
+    return file;
+  }
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Не удалось прочитать изображение."));
+      element.src = imageUrl;
+    });
+    const sourceX = Math.round(image.naturalWidth * selection.x);
+    const sourceY = Math.round(image.naturalHeight * selection.y);
+    const sourceWidth = Math.max(1, Math.round(image.naturalWidth * selection.width));
+    const sourceHeight = Math.max(1, Math.round(image.naturalHeight * selection.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Редактор изображения недоступен в этом WebView.");
+    }
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+    const outputType = file.type === "image/png" || file.type === "image/webp" ? file.type : "image/jpeg";
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) => (result ? resolve(result) : reject(new Error("Не удалось подготовить выделенную область."))),
+        outputType,
+        0.92,
+      );
+    });
+    return new File([blob], `selection-${file.name}`, { type: outputType, lastModified: Date.now() });
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}
 
 function TodayScreen({ onNotify, authReady }: { onNotify: Notify; authReady: boolean }) {
   const [outfit, setOutfit] = useState<OutfitCard | null>(null);
@@ -423,28 +511,21 @@ function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: 
     if (!authReady) {
       return;
     }
-    const objectUrls: string[] = [];
     void Promise.all([listWardrobeItems(), getWardrobeHealth()])
       .then(([items, nextHealth]) => {
         setRemoteGarments(items);
         setHealth(nextHealth);
-        return Promise.all(
-          items.map(async (item) => {
-            const imageUrl = await getWardrobeItemImageObjectUrl(item.id);
-            if (imageUrl) {
-              objectUrls.push(imageUrl);
-            }
-            return { ...item, imageUrl };
-          }),
-        );
+        // Max 3 image fetches at once: a full-grid burst starves other
+        // requests (deletes included) behind the browser connection limit.
+        return mapWithConcurrency(items, 3, async (item) => ({
+          ...item,
+          imageUrl: await getWardrobeItemImageObjectUrl(item.id),
+        }));
       })
       .then(setRemoteGarments)
       .catch((error: unknown) => {
         onNotify(error instanceof Error ? error.message : "Не удалось загрузить гардероб.", "error");
       });
-    return () => {
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
   }, [authReady, onNotify]);
 
   const visibleGarments = remoteGarments.filter((item) => {
@@ -478,20 +559,20 @@ function WardrobeScreen({ onNotify, authReady }: { onNotify: Notify; authReady: 
       if (!confirmed) {
         return;
       }
+      // Optimistic removal: the card disappears at once and comes back on failure.
+      setRemoteGarments((current) => current.filter((existing) => existing.id !== item.id));
+      setSelectedItems((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
       void deleteWardrobeItem(item.id)
         .then(() => {
-          setRemoteGarments((current) => current.filter((existing) => existing.id !== item.id));
-          setSelectedItems((current) => {
-            const next = new Set(current);
-            next.delete(item.id);
-            return next;
-          });
-          if (item.imageUrl) {
-            URL.revokeObjectURL(item.imageUrl);
-          }
+          evictItemImage(item.id);
           onNotify(`«${item.title}» удалена из гардероба.`, "success");
         })
         .catch((error: unknown) => {
+          setRemoteGarments((current) => [item, ...current]);
           onNotify(error instanceof Error ? error.message : "Не удалось удалить вещь.", "error");
         });
     };
@@ -603,46 +684,193 @@ function statusText(status?: string): string {
   return labels[status ?? ""] ?? "Ожидание";
 }
 
-function AddScreen({ onNotify }: { onNotify: Notify }) {
+function AddScreen({
+  onNotify,
+  upload,
+  onUploadChange,
+}: {
+  onNotify: Notify;
+  upload: UploadStatus | null;
+  onUploadChange: (upload: UploadStatus | null) => void;
+}) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const selectionStageRef = useRef<HTMLDivElement | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; before: ImageSelection } | null>(null);
   const [mode, setMode] = useState<UploadMode>("auto");
-  const [upload, setUpload] = useState<UploadStatus | null>(null);
+  const setUpload = onUploadChange;
   const [busy, setBusy] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState<"region" | "full">("region");
+  const [selection, setSelection] = useState<ImageSelection>(DEFAULT_PERSON_SELECTION);
+  const [selectionHistory, setSelectionHistory] = useState<ImageSelection[]>([DEFAULT_PERSON_SELECTION]);
+  const [selectionHistoryIndex, setSelectionHistoryIndex] = useState(0);
 
-  useEffect(() => {
-    if (!upload || upload.status === "completed" || upload.status === "failed") {
-      return undefined;
+  useEffect(
+    () => () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    },
+    [previewUrl],
+  );
+
+  function resetEditor(file: File) {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
     }
-    const timer = window.setInterval(() => {
-      void getUploadStatus(upload.id)
-        .then((nextUpload) => {
-          setUpload(nextUpload);
-          if (nextUpload.status === "completed") {
-            onNotify("Фото обработано, карточка готова.", "success");
-          }
-        })
-        .catch((error: unknown) => {
-          onNotify(error instanceof Error ? error.message : "Не удалось получить статус загрузки.", "error");
-        });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [onNotify, upload]);
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setSelectionMode("region");
+    setSelection(DEFAULT_PERSON_SELECTION);
+    setSelectionHistory([DEFAULT_PERSON_SELECTION]);
+    setSelectionHistoryIndex(0);
+  }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
+    resetEditor(file);
+    event.target.value = "";
+    onNotify("Предложила область человека. Проверьте её перед распознаванием.", "info");
+  }
+
+  function pointFromPointer(event: ReactPointerEvent<HTMLDivElement>): { x: number; y: number } {
+    const rect = selectionStageRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: 0, y: 0 };
+    }
+    return {
+      x: clampUnit((event.clientX - rect.left) / rect.width),
+      y: clampUnit((event.clientY - rect.top) / rect.height),
+    };
+  }
+
+  function handleSelectionStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (selectionMode !== "region") {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = pointFromPointer(event);
+    dragStartRef.current = { ...point, before: selection };
+    setSelection({
+      kind: "rectangle",
+      source: "user",
+      x: point.x,
+      y: point.y,
+      width: 0.01,
+      height: 0.01,
+    });
+  }
+
+  function handleSelectionMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = dragStartRef.current;
+    if (!start || selectionMode !== "region") {
+      return;
+    }
+    const point = pointFromPointer(event);
+    const x = Math.min(start.x, point.x);
+    const y = Math.min(start.y, point.y);
+    setSelection({
+      kind: "rectangle",
+      source: "user",
+      x,
+      y,
+      width: Math.max(0.01, Math.abs(point.x - start.x)),
+      height: Math.max(0.01, Math.abs(point.y - start.y)),
+    });
+  }
+
+  function handleSelectionEnd() {
+    if (!dragStartRef.current) {
+      return;
+    }
+    dragStartRef.current = null;
+    setSelectionHistory((current) => {
+      const next = [...current.slice(0, selectionHistoryIndex + 1), selection];
+      setSelectionHistoryIndex(next.length - 1);
+      return next;
+    });
+  }
+
+  function undoSelection() {
+    const nextIndex = Math.max(0, selectionHistoryIndex - 1);
+    setSelectionHistoryIndex(nextIndex);
+    setSelection(selectionHistory[nextIndex]);
+  }
+
+  function redoSelection() {
+    const nextIndex = Math.min(selectionHistory.length - 1, selectionHistoryIndex + 1);
+    setSelectionHistoryIndex(nextIndex);
+    setSelection(selectionHistory[nextIndex]);
+  }
+
+  function resetSelection() {
+    setSelection(DEFAULT_PERSON_SELECTION);
+    setSelectionHistory([DEFAULT_PERSON_SELECTION]);
+    setSelectionHistoryIndex(0);
+    onNotify("Вернула предложенную область человека.", "info");
+  }
+
+  function handleSelectionKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (selectionMode !== "region" || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const step = event.altKey ? 0.002 : 0.01;
+    const next = { ...selection, source: "user" as const };
+    if (event.shiftKey) {
+      if (event.key === "ArrowLeft") {
+        next.width = Math.max(0.01, next.width - step);
+      } else if (event.key === "ArrowRight") {
+        next.width = Math.min(1 - next.x, next.width + step);
+      } else if (event.key === "ArrowUp") {
+        next.height = Math.max(0.01, next.height - step);
+      } else {
+        next.height = Math.min(1 - next.y, next.height + step);
+      }
+    } else if (event.key === "ArrowLeft") {
+      next.x = Math.max(0, next.x - step);
+    } else if (event.key === "ArrowRight") {
+      next.x = Math.min(1 - next.width, next.x + step);
+    } else if (event.key === "ArrowUp") {
+      next.y = Math.max(0, next.y - step);
+    } else {
+      next.y = Math.min(1 - next.height, next.y + step);
+    }
+    setSelection(next);
+    setSelectionHistory((current) => {
+      const history = [...current.slice(0, selectionHistoryIndex + 1), next];
+      setSelectionHistoryIndex(history.length - 1);
+      return history;
+    });
+  }
+
+  async function submitPhoto() {
+    if (!selectedFile) {
+      return;
+    }
     setBusy(true);
     try {
-      const nextUpload = await uploadPhoto(file, mode);
+      const confirmedSelection: ImageSelection =
+        selectionMode === "full"
+          ? { kind: "full", source: "user", x: 0, y: 0, width: 1, height: 1 }
+          : selection;
+      const uploadFile = await cropImageFile(selectedFile, confirmedSelection);
+      const nextUpload = await uploadPhoto(uploadFile, mode, confirmedSelection);
       setUpload(nextUpload);
-      onNotify("Фото принято и отправлено на обработку.", "success");
+      setSelectedFile(null);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+      }
+      onNotify("Фото принято. Обработка идёт в фоне — можно переключать вкладки.", "success");
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Не удалось загрузить фото.", "error");
     } finally {
       setBusy(false);
-      event.target.value = "";
     }
   }
 
@@ -683,15 +911,99 @@ function AddScreen({ onNotify }: { onNotify: Notify }) {
       <header className="compact-header">
         <h1>Добавить</h1>
       </header>
-      <article className="upload-card">
-        {busy ? <Loader2 className="spin" size={30} /> : <Upload size={30} />}
-        <h2>Фото вещи или лука</h2>
-        <p>Я создам карточки и сохраню лук в избранное</p>
-        <input ref={inputRef} className="file-input" type="file" accept="image/*" onChange={handleFileChange} />
-        <button className="primary" type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
-          {busy ? "Загружаю..." : "Выбрать фото"}
-        </button>
-      </article>
+      <input ref={inputRef} className="file-input" type="file" accept="image/*" onChange={handleFileChange} />
+      {selectedFile && previewUrl ? (
+        <article className="selection-editor">
+          <div className="selection-head">
+            <div>
+              <span className="eyebrow">Контроль распознавания</span>
+              <h2>Что добавить в гардероб?</h2>
+            </div>
+            <ScanLine size={24} />
+          </div>
+          <p className="selection-copy">
+            Я предложила область человека. Обведите пальцем только нужный лук, чтобы вещи на фоне не попали в анализ.
+          </p>
+          <div className="selection-mode" role="group" aria-label="Область распознавания">
+            <button
+              className={selectionMode === "region" ? "active" : ""}
+              type="button"
+              onClick={() => setSelectionMode("region")}
+            >
+              <Crop size={16} /> Только область
+            </button>
+            <button
+              className={selectionMode === "full" ? "active" : ""}
+              type="button"
+              onClick={() => setSelectionMode("full")}
+            >
+              <Check size={16} /> Всё фото
+            </button>
+          </div>
+          <div
+            ref={selectionStageRef}
+            className={`selection-stage${selectionMode === "full" ? " full" : ""}`}
+            onPointerDown={handleSelectionStart}
+            onPointerMove={handleSelectionMove}
+            onPointerUp={handleSelectionEnd}
+            onPointerCancel={handleSelectionEnd}
+            onKeyDown={handleSelectionKeyDown}
+            role="group"
+            tabIndex={selectionMode === "region" ? 0 : -1}
+            aria-label={
+              selectionMode === "region"
+                ? "Интерактивное фото с выделенной областью. Проведите пальцем или мышью; стрелки двигают область, Shift и стрелки меняют размер."
+                : "В распознавание попадёт всё фото."
+            }
+          >
+            <img src={previewUrl} alt="" draggable={false} />
+            {selectionMode === "region" ? (
+              <span
+                className="selection-box"
+                style={{
+                  left: `${selection.x * 100}%`,
+                  top: `${selection.y * 100}%`,
+                  width: `${selection.width * 100}%`,
+                  height: `${selection.height * 100}%`,
+                }}
+              >
+                <span>Распознать здесь</span>
+              </span>
+            ) : null}
+          </div>
+          <div className="editor-toolbar" aria-label="История выделения">
+            <button type="button" onClick={undoSelection} disabled={selectionHistoryIndex === 0}>
+              <Undo2 size={17} /> Назад
+            </button>
+            <button
+              type="button"
+              onClick={redoSelection}
+              disabled={selectionHistoryIndex >= selectionHistory.length - 1}
+            >
+              <Redo2 size={17} /> Вперёд
+            </button>
+            <button type="button" onClick={resetSelection}>
+              <RotateCcw size={17} /> Сброс
+            </button>
+          </div>
+          <button className="wide-primary" type="button" disabled={busy} onClick={submitPhoto}>
+            {busy ? <Loader2 className="spin" size={18} /> : <ScanLine size={18} />}
+            {selectionMode === "region" ? "Распознать выделенное" : "Распознать всё фото"}
+          </button>
+          <button className="change-photo" type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
+            Выбрать другое фото
+          </button>
+        </article>
+      ) : (
+        <article className="upload-card">
+          {busy ? <Loader2 className="spin" size={30} /> : <Upload size={30} />}
+          <h2>Фото вещи или лука</h2>
+          <p>Перед анализом вы сможете исключить манекены, вешалки и людей на фоне</p>
+          <button className="primary" type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
+            {busy ? "Загружаю..." : "Выбрать фото"}
+          </button>
+        </article>
+      )}
       <div className="mode-grid">
         {uploadModes.map((uploadMode) => (
           <button
@@ -711,7 +1023,14 @@ function AddScreen({ onNotify }: { onNotify: Notify }) {
             <strong>{upload.filename ?? "Фото"}</strong>
             <span>{statusText(upload.status)}</span>
           </div>
-          <div className="progress-track" aria-label="Статус обработки">
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-label="Статус обработки"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.max(0, Math.min(upload.progress, 100))}
+          >
             <span style={{ width: `${Math.max(0, Math.min(upload.progress, 100))}%` }} />
           </div>
           <p>{upload.result_title ?? `Тип: ${upload.upload_type ?? mode} · task ${upload.task_id?.slice(0, 8)}`}</p>
@@ -732,78 +1051,65 @@ function AddScreen({ onNotify }: { onNotify: Notify }) {
   );
 }
 
+const designerQuickPrompts: Array<{ label: string; message: string; tool?: "gaps" }> = [
+  { label: "Чего не хватает?", tool: "gaps", message: "Каких вещей не хватает моему гардеробу?" },
+  { label: "Собрать образ", message: "Собери образ из моего гардероба на сегодня. Если нужно что-то уточнить — спроси меня." },
+  {
+    label: "Стоит ли покупать?",
+    message: "Я думаю о покупке новой вещи. Задай мне уточняющие вопросы и помоги решить, стоит ли покупать.",
+  },
+  {
+    label: "Оценить образ",
+    message: "Оцени образ, который я опишу: что уже работает и что можно улучшить. Оценивай только одежду.",
+  },
+  { label: "Капсула на неделю", message: "Собери капсулу на неделю из моего гардероба: сочетания на каждый день." },
+];
+
 function DesignerScreen({ onNotify }: { onNotify: Notify }) {
-  const [activeTool, setActiveTool] = useState<DesignerToolKey>("gaps");
-  const [result, setResult] = useState<DesignerResult>({
-    title: "Чего не хватает",
-    summary: "Проверим пробелы гардероба и превратим их в понятные действия.",
-    bullets: ["Нажмите на инструмент выше, чтобы получить разбор."],
-  });
-  const [busy, setBusy] = useState(false);
-  const [chatInput, setChatInput] = useState("Что надеть завтра, если я мёрзну сильнее обычного?");
+  const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
     {
       role: "assistant",
-      text: "Напишите сценарий дня, погоду или ощущение температуры — я отвечу с учётом вашего гардероба.",
+      text: "Я ваш AI-стилист и помню ваш гардероб. Спросите про образ, покупку или конкретную вещь — детали вроде погоды не обязательны, если нужно, я уточню сама.",
     },
   ]);
-  const tools = [
-    ["gaps", "layers", "Чего не хватает?", "Пробелы гардероба и приоритеты"],
-    ["anchor", "bot", "Собрать с вещью", "Опорная вещь · погода · событие"],
-    ["purchase", "search", "Стоит ли покупать?", "Дубли · совместимость · сценарии"],
-    ["rate", "camera", "Оценить образ", "Что работает и что улучшить"],
-    ["capsule", "calendar", "Капсула", "Неделя · поездка · сезон"],
-  ] as const;
 
-  function offlineDesignerResult(tool: DesignerToolKey, title: string): DesignerResult {
-    const copy: Record<DesignerToolKey, DesignerResult> = {
-      gaps: {
-        title,
-        summary: "Для точного расчёта нужен гардероб, но базово стоит закрыть погодные и сезонные пробелы.",
-        bullets: ["Проверьте дождевую обувь.", "Добавьте спокойный верхний слой.", "Отметьте вещи в стирке."],
-      },
-      anchor: {
-        title,
-        summary: "Выберите ключевую вещь и задайте событие, погоду и желаемую теплоту.",
-        bullets: ["Опорная вещь не должна спорить с обувью.", "Если мерзнете, добавляйте слой даже летом."],
-      },
-      purchase: {
-        title,
-        summary: "Покупку стоит оценивать не по красоте, а по реальным сценариям носки.",
-        bullets: ["Есть ли похожая вещь?", "С чем минимум 3 раза надеть?", "Подходит ли к вашей погодной привычке?"],
-      },
-      rate: {
-        title,
-        summary: "Разбор должен объяснять, что уже работает, а затем давать одно-два улучшения.",
-        bullets: ["Оценивается только одежда.", "Лицо, тело и личность не анализируются."],
-      },
-      capsule: {
-        title,
-        summary: "Капсула собирается от расписания: дни, погода, дресс-код и сколько можно нести.",
-        bullets: ["Начните с обуви.", "Добавьте повторяемый верх.", "Оставьте один акцент."],
-      },
-    };
-    return copy[tool];
+  useEffect(() => {
+    chatLogRef.current?.scrollTo({ top: chatLogRef.current.scrollHeight });
+  }, [chatMessages, chatBusy]);
+
+  function pushMessage(role: "user" | "assistant", text: string) {
+    setChatMessages((current) => [...current, { role, text }]);
   }
 
-  async function selectTool(tool: DesignerToolKey, title: string) {
-    setActiveTool(tool);
-    setBusy(true);
+  async function submitToDesigner(shownText: string, message: string, tool?: "gaps") {
+    if (chatBusy) {
+      return;
+    }
+    if (!hasAccessToken()) {
+      onNotify("Откройте Mini App внутри Telegram, чтобы дизайнер видел ваш гардероб.", "warning");
+      return;
+    }
+    pushMessage("user", shownText);
+    setChatBusy(true);
     try {
-      const fallback = offlineDesignerResult(tool, title);
-      const nextResult = hasAccessToken() ? await runDesignerTool(tool).catch(() => fallback) : fallback;
-      setResult(nextResult);
-      onNotify(`${title}: разбор готов.`, "success");
+      if (tool === "gaps") {
+        const result = await runDesignerTool("gaps");
+        pushMessage("assistant", [result.summary, ...result.bullets.map((bullet) => `• ${bullet}`)].join("\n"));
+      } else {
+        const response = await sendDesignerChat({ message });
+        const outfitNote = response.outfit_id
+          ? `\n\nОбраз «${response.outfit_title}» сохранён — он на вкладках «Сегодня» и «Избранное».`
+          : "";
+        pushMessage("assistant", response.reply + outfitNote);
+      }
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Не удалось выполнить инструмент.", "error");
-      setResult({
-        title,
-        summary: "Инструмент временно недоступен, но сценарий сохранён для повторного запуска.",
-        bullets: ["Проверьте авторизацию, API и worker queue."],
-      });
+      onNotify(error instanceof Error ? error.message : "Дизайнер сейчас недоступен.", "error");
+      pushMessage("assistant", "Не получилось получить ответ. Попробуйте ещё раз чуть позже.");
     } finally {
-      setBusy(false);
+      setChatBusy(false);
     }
   }
 
@@ -813,99 +1119,53 @@ function DesignerScreen({ onNotify }: { onNotify: Notify }) {
       onNotify("Напишите вопрос дизайнеру.", "warning");
       return;
     }
-    if (!hasAccessToken()) {
-      onNotify("Откройте Mini App внутри Telegram, чтобы чат видел ваш гардероб.", "warning");
-      return;
-    }
-    setChatBusy(true);
-    setChatMessages((current) => [...current, { role: "user", text: message }]);
     setChatInput("");
-    try {
-      const response = await sendDesignerChat({
-        message,
-        scenario: "чат дизайнера",
-        preferences: "учитывать личную чувствительность к холоду и жаре",
-      });
-      setChatMessages((current) => [...current, { role: "assistant", text: response.reply }]);
-    } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Дизайнер сейчас недоступен.", "error");
-      setChatMessages((current) => [
-        ...current,
-        { role: "assistant", text: "Не смогла получить ответ от AI-дизайнера. Попробуйте ещё раз чуть позже." },
-      ]);
-    } finally {
-      setChatBusy(false);
-    }
+    await submitToDesigner(message, message);
   }
 
   return (
-    <section className="screen-stack">
+    <section className="screen-stack designer-screen">
       <header className="compact-header">
         <h1>Дизайнер</h1>
       </header>
-      <div className="designer-list">
-        {tools.map(([tool, icon, title, text]) => (
-          <SmartCard
-            active={activeTool === tool}
-            icon={icon}
-            title={title}
-            text={text}
-            key={title}
-            onClick={() => void selectTool(tool, title)}
-          />
-        ))}
-      </div>
-      <article className="designer-result">
-        <div className="result-head">
+      <article className="designer-chat-panel tall">
+        <div className="chat-head">
           <Bot size={20} />
           <div>
-            <span className="eyebrow">Результат дизайнера</span>
-            <h2>{busy ? "Считаю..." : result.title}</h2>
-          </div>
-          {busy ? <Loader2 className="spin" size={20} /> : null}
-        </div>
-        <p>{result.summary}</p>
-        <ul>
-          {result.bullets.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
-          ))}
-        </ul>
-      </article>
-      <article className="designer-chat-panel">
-        <div className="chat-head">
-          <MessageCircle size={20} />
-          <div>
-            <strong>Чат с дизайнером</strong>
-            <span>Спросите про день, погоду, покупку или конкретную вещь</span>
+            <strong>AI-стилист</strong>
+            <span>Помнит ваш гардероб · уточнит детали сам, если нужно</span>
           </div>
         </div>
-        <div className="chat-log">
+        <div className="chat-log" ref={chatLogRef}>
           {chatMessages.map((message, index) => (
             <p className={message.role} key={`${message.role}-${index}`}>
               {message.text}
             </p>
           ))}
+          {chatBusy ? <p className="assistant thinking">Думаю…</p> : null}
+        </div>
+        <div className="chip-row designer-chips">
+          {designerQuickPrompts.map((prompt) => (
+            <button
+              type="button"
+              key={prompt.label}
+              disabled={chatBusy}
+              onClick={() => void submitToDesigner(prompt.label, prompt.message, prompt.tool)}
+            >
+              {prompt.label}
+            </button>
+          ))}
         </div>
         <textarea
           value={chatInput}
           onChange={(event) => setChatInput(event.target.value)}
-          rows={3}
-          placeholder="Например: завтра офис и дождь, хочу тепло, но не слишком формально."
+          rows={2}
+          placeholder="Спросите как в обычном чате: образ, покупка, конкретная вещь…"
         />
-        <button className="chat-submit" type="button" disabled={chatBusy} onClick={sendChatMessage}>
+        <button className="chat-submit" type="button" disabled={chatBusy} onClick={() => void sendChatMessage()}>
           {chatBusy ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
-          Спросить дизайнера
+          Отправить
         </button>
-      </article>
-      <article className="style-dna">
-        <span className="eyebrow">Профиль стиля</span>
-        <h2>кэжуал · минимализм · нейтральная база</h2>
-        <p>Предпочтения можно уточнять через сценарий дня: теплее, легче, формальнее или свободнее.</p>
-        <div className="dna-bars">
-          <span style={{ width: "76%" }} />
-          <span style={{ width: "58%" }} />
-          <span style={{ width: "42%" }} />
-        </div>
       </article>
     </section>
   );
@@ -1056,31 +1316,583 @@ function FavoritesScreen({ onNotify, authReady }: { onNotify: Notify; authReady:
   );
 }
 
+const featureLabels: Record<string, string> = {
+  selection_editor: "Редактор области",
+  basic_outfits: "Базовые образы",
+  basic_weather: "Погода",
+  limited_research: "Ограниченный AI-анализ",
+  avatar_try_on: "Персональный аватар и примерка",
+  full_research: "Полный AI-анализ",
+  look_analysis: "Разбор луков",
+  unlimited_favorites: "Избранное без лимита",
+  wardrobe_analytics: "Аналитика гардероба",
+  priority_queue: "Приоритетная обработка",
+  multi_wardrobe: "Несколько гардеробов",
+  export: "Экспорт",
+  capsules: "Капсулы",
+  trip_packing: "Сборы в поездку",
+  stylist_mode: "Режим стилиста",
+};
+
+const previewBillingPlans: BillingPlan[] = [
+  {
+    code: "free",
+    title: "Free",
+    monthly_price: 0,
+    currency: "RUB",
+    item_limit: 20,
+    ai_analysis_limit: 5,
+    avatar_generation_limit: 0,
+    try_on_limit: 0,
+    features: ["selection_editor", "basic_outfits", "basic_weather", "limited_research"],
+    pricing_status: "предварительная цена",
+  },
+  {
+    code: "premium",
+    title: "Premium",
+    monthly_price: 699,
+    currency: "RUB",
+    item_limit: 500,
+    ai_analysis_limit: 100,
+    avatar_generation_limit: 2,
+    try_on_limit: 6,
+    features: [
+      "avatar_try_on",
+      "full_research",
+      "look_analysis",
+      "unlimited_favorites",
+      "wardrobe_analytics",
+      "priority_queue",
+    ],
+    pricing_status: "предварительная цена",
+  },
+  {
+    code: "pro",
+    title: "Pro",
+    monthly_price: 1490,
+    currency: "RUB",
+    item_limit: null,
+    ai_analysis_limit: null,
+    avatar_generation_limit: 5,
+    try_on_limit: 15,
+    features: ["avatar_try_on", "multi_wardrobe", "export", "capsules", "trip_packing", "stylist_mode"],
+    pricing_status: "предварительная цена",
+  },
+];
+
+function StudioScreen({
+  onNotify,
+  authReady,
+  lastUploadId,
+}: {
+  onNotify: Notify;
+  authReady: boolean;
+  lastUploadId?: string;
+}) {
+  const [plans, setPlans] = useState<BillingPlan[]>(previewBillingPlans);
+  const [access, setAccess] = useState<BillingAccess | null>(null);
+  const [profile, setProfile] = useState<AvatarProfile | null>(null);
+  const [garments, setGarments] = useState<GarmentCard[]>([]);
+  const [selectedGarments, setSelectedGarments] = useState<Set<string>>(new Set());
+  const [description, setDescription] = useState("");
+  const [height, setHeight] = useState("");
+  const [waist, setWaist] = useState("");
+  const [hips, setHips] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tryOn, setTryOn] = useState<TryOnJob | null>(null);
+  const [avatarImage, setAvatarImage] = useState<string | undefined>();
+  const [tryOnImage, setTryOnImage] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (!SUBSCRIPTIONS_UI_ENABLED) {
+      return;
+    }
+    void listBillingPlans()
+      .then(setPlans)
+      .catch(() => {
+        // The public catalog remains useful in a visual preview while the API is unavailable.
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      return;
+    }
+    void Promise.all([getBillingAccess(), getAvatarProfile(), listWardrobeItems()])
+      .then(([nextAccess, nextProfile, nextGarments]) => {
+        setAccess(nextAccess);
+        setProfile(nextProfile);
+        setGarments(nextGarments);
+        if (nextProfile) {
+          setDescription(nextProfile.description ?? "");
+          setConsent(Boolean(nextProfile.consented_at && !nextProfile.revoked_at));
+          const values = Object.fromEntries(
+            nextProfile.measurements.map((measurement) => [measurement.code, String(measurement.value)]),
+          );
+          setHeight(values.height ?? "");
+          setWaist(values.waist ?? "");
+          setHips(values.hips ?? "");
+        }
+      })
+      .catch((error: unknown) => {
+        onNotify(error instanceof Error ? error.message : "Не удалось загрузить AI-студию.", "error");
+      });
+  }, [authReady, onNotify]);
+
+  useEffect(() => {
+    if (!profile || !["queued", "processing"].includes(profile.status)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void getAvatarProfile().then((nextProfile) => {
+        if (nextProfile) {
+          setProfile(nextProfile);
+        }
+      });
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile?.generated_image_id || profile.status !== "completed") {
+      return;
+    }
+    void getAvatarImageObjectUrl().then(setAvatarImage);
+  }, [profile?.generated_image_id, profile?.status]);
+
+  useEffect(
+    () => () => {
+      if (avatarImage) {
+        URL.revokeObjectURL(avatarImage);
+      }
+    },
+    [avatarImage],
+  );
+
+  useEffect(() => {
+    if (!tryOn || !["queued", "processing"].includes(tryOn.status)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void getTryOn(tryOn.id).then(setTryOn);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [tryOn]);
+
+  useEffect(() => {
+    if (!tryOn?.output_image_id || tryOn.status !== "completed") {
+      return;
+    }
+    void getTryOnImageObjectUrl(tryOn.id).then(setTryOnImage);
+  }, [tryOn?.id, tryOn?.output_image_id, tryOn?.status]);
+
+  useEffect(
+    () => () => {
+      if (tryOnImage) {
+        URL.revokeObjectURL(tryOnImage);
+      }
+    },
+    [tryOnImage],
+  );
+
+  function measurement(code: AvatarMeasurement["code"], rawValue: string): AvatarMeasurement | null {
+    const value = Number(rawValue);
+    return Number.isFinite(value) && value > 0 ? { code, value, unit: "cm" } : null;
+  }
+
+  async function saveProfile() {
+    if (!consent) {
+      onNotify("Подтвердите согласие на создание и хранение аватара.", "warning");
+      return;
+    }
+    setBusy(true);
+    try {
+      const measurements = [
+        measurement("height", height),
+        measurement("waist", waist),
+        measurement("hips", hips),
+      ].filter((value): value is AvatarMeasurement => value !== null);
+      const nextProfile = await saveAvatarProfile({
+        consent: true,
+        description: description.trim() || undefined,
+        reference_upload_id: lastUploadId,
+        measurements,
+      });
+      setProfile(nextProfile);
+      onNotify(
+        lastUploadId || nextProfile.reference_image_id
+          ? "Профиль и согласие сохранены."
+          : "Профиль сохранён. Загрузите фото, чтобы создать аватар.",
+        "success",
+      );
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось сохранить профиль.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startAvatarGeneration() {
+    setBusy(true);
+    try {
+      const nextProfile = await generateAvatar();
+      setProfile(nextProfile);
+      if (nextProfile.generation_error === "provider_not_configured") {
+        onNotify("Провайдер генерации не настроен. Профиль сохранён, фальшивый результат не создан.", "warning");
+      } else {
+        onNotify("Создание аватара запущено.", "success");
+      }
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось запустить создание аватара.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function activatePromo() {
+    if (!promoCode.trim()) {
+      onNotify("Введите промокод.", "warning");
+      return;
+    }
+    setBusy(true);
+    try {
+      const redemption = await redeemPromoCode(promoCode);
+      setAccess(await getBillingAccess());
+      setPromoCode("");
+      onNotify(`Premium открыт до ${new Date(redemption.expires_at).toLocaleString("ru-RU")}.`, "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Промокод не активирован.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startTryOn() {
+    if (selectedGarments.size === 0) {
+      onNotify("Выберите хотя бы одну вещь.", "warning");
+      return;
+    }
+    setBusy(true);
+    try {
+      const nextJob = await createTryOn([...selectedGarments]);
+      setTryOn(nextJob);
+      if (nextJob.error_code === "provider_not_configured") {
+        onNotify("Провайдер примерки не настроен; задача сохранена как недоступная, без mock-картинки.", "warning");
+      } else {
+        onNotify("Виртуальная примерка запущена.", "success");
+      }
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось запустить примерку.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeProfile() {
+    const confirmed = await new Promise<boolean>((resolve) =>
+      confirmDialog("Отозвать согласие и удалить связи с фото и аватаром?", resolve),
+    );
+    if (!confirmed) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await revokeAvatarProfile();
+      setProfile(null);
+      setConsent(false);
+      setAvatarImage(undefined);
+      setTryOn(null);
+      setTryOnImage(undefined);
+      onNotify("Согласие отозвано, ссылки на лицо и аватар удалены.", "success");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Не удалось отозвать согласие.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasAvatarAccess =
+    authReady && (!SUBSCRIPTIONS_UI_ENABLED || !access?.enabled || access.features.includes("avatar_try_on"));
+
+  return (
+    <section className="screen-stack studio-screen">
+      <header className="compact-header">
+        <div>
+          <span className="eyebrow">AI-студия</span>
+          <h1>Аватар и примерка</h1>
+        </div>
+        <Crown size={24} />
+      </header>
+
+      {SUBSCRIPTIONS_UI_ENABLED ? (
+        <>
+          {access ? (
+            <article className="access-card">
+              <div>
+                <span className="eyebrow">Ваш доступ</span>
+                <h2>{access.plan === "free" ? "Free" : access.plan === "premium" ? "Premium" : "Pro"}</h2>
+                <p>
+                  {access.source === "promo" && access.expires_at
+                    ? `Промодоступ до ${new Date(access.expires_at).toLocaleString("ru-RU")}`
+                    : access.source === "subscription"
+                      ? "Активная подписка"
+                      : "Базовый тариф"}
+                </p>
+              </div>
+              <Crown size={28} />
+            </article>
+          ) : (
+            <SmartCard
+              icon="layers"
+              title="Войдите через Telegram"
+              text="Тарифы можно сравнить сейчас. Активация промокода и AI-студия откроются после безопасной авторизации."
+            />
+          )}
+          <div className="plan-grid">
+            {plans.map((plan) => (
+              <article className={`plan-card${plan.code === "premium" ? " featured" : ""}`} key={plan.code}>
+                <span className="eyebrow">{plan.code === "premium" ? "Рекомендуем" : plan.pricing_status}</span>
+                <h3>{plan.title}</h3>
+                <strong>
+                  {plan.monthly_price === 0 ? "Бесплатно" : `${plan.monthly_price.toLocaleString("ru-RU")} ₽/мес`}
+                </strong>
+                <p className="plan-limits">
+                  {plan.ai_analysis_limit === null ? "AI-анализ без лимита" : `${plan.ai_analysis_limit} AI-анализов`}
+                  {plan.try_on_limit > 0 ? ` · ${plan.try_on_limit} примерок` : ""}
+                  {plan.avatar_generation_limit > 0 ? ` · ${plan.avatar_generation_limit} аватара` : ""}
+                </p>
+                <ul>
+                  {plan.features.slice(0, 5).map((feature) => (
+                    <li key={feature}>
+                      <Check size={14} /> {featureLabels[feature] ?? feature}
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" disabled={!access?.payments_enabled || plan.code === access?.plan}>
+                  {plan.code === access?.plan ? "Текущий" : access?.payments_enabled ? "Выбрать" : "Оплата скоро"}
+                </button>
+              </article>
+            ))}
+          </div>
+          <article className="promo-card">
+            <Ticket size={22} />
+            <div>
+              <strong>Есть промокод?</strong>
+              <span>Активация и срок проверяются на сервере</span>
+            </div>
+            <input
+              value={promoCode}
+              onChange={(event) => setPromoCode(event.target.value)}
+              placeholder="AW-…"
+              autoCapitalize="characters"
+              aria-label="Промокод"
+              disabled={!authReady}
+            />
+            <button type="button" disabled={busy || !authReady} onClick={activatePromo}>
+              Активировать
+            </button>
+          </article>
+        </>
+      ) : (
+        <SmartCard
+          icon="layers"
+          title="Открытый режим"
+          text="Paywall отключён сборкой; AI-студия доступна без подписочного интерфейса."
+        />
+      )}
+
+      <article className={`avatar-card${hasAvatarAccess ? "" : " locked"}`}>
+        <div className="selection-head">
+          <div>
+            <span className="eyebrow">Персональный манекен</span>
+            <h2>Ваши пропорции — без «улучшения»</h2>
+          </div>
+          <Ruler size={24} />
+        </div>
+        {avatarImage ? (
+          <img className="avatar-preview" src={avatarImage} alt="Сгенерированный персональный аватар" />
+        ) : (
+          <div className="avatar-placeholder">
+            <Sparkles size={34} />
+            <strong>{profile?.status === "queued" || profile?.status === "processing" ? "Создаю аватар…" : "Аватар ещё не создан"}</strong>
+            <span>Нейтральный фон · закрытый серый лонгслив · легинсы по фигуре</span>
+          </div>
+        )}
+        {!hasAvatarAccess ? (
+          <p className="premium-note">
+            {authReady ? "Функция доступна в Premium или по промокоду." : "Откройте приложение в Telegram, чтобы продолжить."}
+          </p>
+        ) : (
+          <>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Нейтральное описание внешности и особенностей, которые важно сохранить"
+              rows={3}
+            />
+            <div className="measurement-grid">
+              {[
+                ["Рост", height, setHeight],
+                ["Талия", waist, setWaist],
+                ["Бёдра", hips, setHips],
+              ].map(([label, value, setter]) => (
+                <label key={String(label)}>
+                  <span>{String(label)}, см</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    max="300"
+                    value={String(value)}
+                    onChange={(event) => (setter as (nextValue: string) => void)(event.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+            <label className="consent-row">
+              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+              <span>
+                Я согласен(на) на обработку пропорций и использование последнего загруженного фото как приватного
+                референса. Согласие можно отозвать.
+              </span>
+            </label>
+            <p className="privacy-hint">
+              {lastUploadId
+                ? "Будет использовано последнее загруженное фото."
+                : profile?.reference_image_id
+                  ? "Приватный референс уже сохранён."
+                  : "Сначала загрузите подходящее фото во вкладке «Добавить»."}
+            </p>
+            <div className="action-row two">
+              <button type="button" disabled={busy} onClick={saveProfile}>
+                Сохранить профиль
+              </button>
+              <button
+                className="primary"
+                type="button"
+                disabled={busy || !profile?.reference_image_id || !consent}
+                onClick={startAvatarGeneration}
+              >
+                Создать аватар
+              </button>
+            </div>
+            {profile ? (
+              <button className="danger-link" type="button" disabled={busy} onClick={revokeProfile}>
+                Отозвать согласие и удалить аватар
+              </button>
+            ) : null}
+          </>
+        )}
+      </article>
+
+      <article className={`try-on-card${hasAvatarAccess ? "" : " locked"}`}>
+        <div className="selection-head">
+          <div>
+            <span className="eyebrow">Virtual try-on</span>
+            <h2>Примерить вещи</h2>
+          </div>
+          <Sparkles size={24} />
+        </div>
+        {tryOnImage ? (
+          <img className="avatar-preview" src={tryOnImage} alt="Результат виртуальной примерки" />
+        ) : (
+          <p className="selection-copy">
+            Выберите вещи. Генерация сохраняет лицо и пропорции, но не гарантирует физическую посадку и размер.
+          </p>
+        )}
+        <div className="studio-garments">
+          {garments.slice(0, 12).map((garment) => (
+            <button
+              className={selectedGarments.has(garment.id) ? "active" : ""}
+              type="button"
+              key={garment.id}
+              disabled={!hasAvatarAccess}
+              onClick={() =>
+                setSelectedGarments((current) => {
+                  const next = new Set(current);
+                  if (next.has(garment.id)) {
+                    next.delete(garment.id);
+                  } else if (next.size < 8) {
+                    next.add(garment.id);
+                  }
+                  return next;
+                })
+              }
+            >
+              <Check size={14} /> {garment.title}
+            </button>
+          ))}
+        </div>
+        <button
+          className="wide-primary"
+          type="button"
+          disabled={busy || !hasAvatarAccess || profile?.status !== "completed" || selectedGarments.size === 0}
+          onClick={startTryOn}
+        >
+          {busy || ["queued", "processing"].includes(tryOn?.status ?? "") ? (
+            <Loader2 className="spin" size={18} />
+          ) : (
+            <Sparkles size={18} />
+          )}
+          Сгенерировать примерку
+        </button>
+        {tryOn?.error_code ? <p className="error-copy">Генерация недоступна: {tryOn.error_code}</p> : null}
+      </article>
+    </section>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("today");
   const [toast, setToast] = useState<{ message: string; tone: string } | null>(null);
   const [authReady, setAuthReady] = useState(hasAccessToken());
+  const [upload, setUpload] = useState<UploadStatus | null>(null);
   const webApp = useMemo(() => getTelegramWebApp(), []);
+  const hapticFeedback = useMemo(() => getHapticFeedback(webApp), [webApp]);
 
   const notify = useMemo<Notify>(
     () => (message, tone = "info") => {
       setToast({ message, tone });
       if (tone === "success") {
-        webApp?.HapticFeedback?.notificationOccurred("success");
+        hapticFeedback?.notificationOccurred("success");
       } else if (tone === "error") {
-        webApp?.HapticFeedback?.notificationOccurred("error");
+        hapticFeedback?.notificationOccurred("error");
       } else {
-        webApp?.HapticFeedback?.impactOccurred("light");
+        hapticFeedback?.impactOccurred("light");
       }
       window.setTimeout(() => setToast(null), 2800);
     },
-    [webApp],
+    [hapticFeedback],
   );
 
   useEffect(() => {
     webApp?.ready();
     webApp?.expand();
   }, [webApp]);
+
+  // The poll lives at App level so switching tabs never interrupts an upload.
+  useEffect(() => {
+    if (!upload || upload.status === "completed" || upload.status === "failed") {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void getUploadStatus(upload.id)
+        .then((nextUpload) => {
+          setUpload(nextUpload);
+          if (nextUpload.status === "completed") {
+            notify("Фото обработано, карточки готовы — смотрите «Гардероб».", "success");
+          } else if (nextUpload.status === "failed") {
+            notify("Обработка фото не удалась. Откройте «Добавить», чтобы повторить.", "error");
+          }
+        })
+        .catch(() => {
+          // Transient poll errors are fine; the next tick retries.
+        });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [notify, upload]);
 
   useEffect(() => {
     if (hasAccessToken()) {
@@ -1098,21 +1910,22 @@ export default function App() {
   }, [notify, webApp]);
 
   useEffect(() => {
-    webApp?.HapticFeedback?.impactOccurred("light");
+    hapticFeedback?.impactOccurred("light");
     if (activeTab === "add") {
       webApp?.MainButton?.setText("Выбрать фото");
       webApp?.MainButton?.show();
     } else {
       webApp?.MainButton?.hide();
     }
-  }, [activeTab, webApp]);
+  }, [activeTab, hapticFeedback, webApp]);
 
   const screens: Record<TabKey, ReactNode> = {
     today: <TodayScreen onNotify={notify} authReady={authReady} />,
     wardrobe: <WardrobeScreen onNotify={notify} authReady={authReady} />,
-    add: <AddScreen onNotify={notify} />,
+    add: <AddScreen onNotify={notify} upload={upload} onUploadChange={setUpload} />,
     designer: <DesignerScreen onNotify={notify} />,
     favorites: <FavoritesScreen onNotify={notify} authReady={authReady} />,
+    studio: <StudioScreen onNotify={notify} authReady={authReady} lastUploadId={upload?.id} />,
   };
 
   return (

@@ -5,6 +5,7 @@ import {
   Camera,
   Check,
   ChevronRight,
+  Crown,
   Heart,
   Home,
   Layers3,
@@ -19,11 +20,12 @@ import {
 import type { GarmentCard, NavItem, TabKey } from "./types";
 
 export const navItems: NavItem[] = [
-  { key: "today", label: "Сегодня", icon: Home },
-  { key: "wardrobe", label: "Гардероб", icon: Shirt },
-  { key: "add", label: "Добавить", icon: Plus },
-  { key: "designer", label: "Дизайнер", icon: Sparkles },
-  { key: "favorites", label: "Избранное", icon: Heart },
+  { key: "today", label: "Сегодня", shortLabel: "День", icon: Home },
+  { key: "wardrobe", label: "Гардероб", shortLabel: "Вещи", icon: Shirt },
+  { key: "add", label: "Добавить", shortLabel: "Новое", icon: Plus },
+  { key: "designer", label: "Дизайнер", shortLabel: "AI", icon: Sparkles },
+  { key: "favorites", label: "Избранное", shortLabel: "Луки", icon: Heart },
+  { key: "studio", label: "Студия", shortLabel: "Студия", icon: Crown },
 ];
 
 export function BottomNav({
@@ -40,12 +42,13 @@ export function BottomNav({
         return (
           <button
             className={active === item.key ? "nav-item active" : "nav-item"}
+            aria-label={item.label}
             key={item.key}
             onClick={() => onChange(item.key)}
             type="button"
           >
             <Icon size={18} strokeWidth={2.2} />
-            <span>{item.label}</span>
+            <span aria-hidden="true">{item.shortLabel}</span>
           </button>
         );
       })}
