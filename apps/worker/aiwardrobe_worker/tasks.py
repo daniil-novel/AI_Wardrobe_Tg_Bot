@@ -1,6 +1,7 @@
 import asyncio
 import time
 from base64 import b64encode
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -43,6 +44,19 @@ from sqlalchemy import select, update
 from .celery_app import celery_app
 
 logger = get_task_logger(__name__)
+
+_worker_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def run_worker_coroutine[CoroutineResult](
+    coroutine: Coroutine[Any, Any, CoroutineResult],
+) -> CoroutineResult:
+    """Run async Celery work on one event loop per prefork process."""
+    global _worker_event_loop
+    if _worker_event_loop is None or _worker_event_loop.is_closed():
+        _worker_event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_worker_event_loop)
+    return _worker_event_loop.run_until_complete(coroutine)
 
 
 def find_possible_duplicate(
@@ -307,7 +321,7 @@ def analyze_upload(self: Any, upload_id: str, storage_key: str) -> dict[str, Any
     logger.info("Analyzing upload %s", upload_id)
     started = time.perf_counter()
     try:
-        result = asyncio.run(run())
+        result = run_worker_coroutine(run())
     except Exception:
         logger.exception("AI upload analysis failed", extra={"upload_id_hash": hash_identifier(upload_id)})
         raise
@@ -420,7 +434,7 @@ def transfer_telegram_upload(self: Any, upload_id: str) -> dict[str, Any]:
 
     logger.info("Transferring Telegram upload %s", upload_id)
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Telegram upload transfer finished",
         extra={
@@ -478,7 +492,7 @@ def research_item(self: Any, item_id: str, text_description: str) -> dict[str, A
 
     logger.info("Research queued for item %s", item_id)
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Item research completed",
         extra={"item_id_hash": hash_identifier(item_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
@@ -561,7 +575,7 @@ def generate_outfit(self: Any, user_id: str, context: dict[str, Any]) -> dict[st
 
     logger.info("Generating outfit for user %s", user_id)
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Outfit generation completed",
         extra={"user_id_hash": hash_identifier(user_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
@@ -690,7 +704,7 @@ def designer_chat(self: Any, user_id: str, payload: dict[str, Any]) -> dict[str,
 
     logger.info("Designer chat for user hash %s", hash_identifier(user_id))
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Designer chat completed",
         extra={"user_id_hash": hash_identifier(user_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
@@ -792,7 +806,7 @@ def generate_avatar_image(self: Any, profile_id: str) -> dict[str, Any]:
                 raise
 
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Avatar generation completed",
         extra={
@@ -899,7 +913,7 @@ def generate_virtual_try_on(self: Any, job_id: str) -> dict[str, Any]:
                 raise
 
     started = time.perf_counter()
-    result = asyncio.run(run())
+    result = run_worker_coroutine(run())
     logger.info(
         "Virtual try-on completed",
         extra={"job_id_hash": hash_identifier(job_id), "duration_ms": int((time.perf_counter() - started) * 1000)},
@@ -923,4 +937,4 @@ def send_notification(self: Any, telegram_id: int, text: str) -> dict[str, Any]:
         return {"telegram_id": telegram_id, "status": "delivered"}
 
     logger.info("Sending notification to Telegram user hash %s", hash_identifier(str(telegram_id)))
-    return asyncio.run(run())
+    return run_worker_coroutine(run())

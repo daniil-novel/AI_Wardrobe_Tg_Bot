@@ -1,9 +1,16 @@
+import asyncio
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from aiwardrobe_core.config import Settings
-from aiwardrobe_worker.tasks import analyze_upload, generate_outfit, research_item, send_notification
+from aiwardrobe_worker.tasks import (
+    analyze_upload,
+    generate_outfit,
+    research_item,
+    run_worker_coroutine,
+    send_notification,
+)
 
 
 def test_worker_tasks_do_not_return_placeholder_provider_statuses() -> None:
@@ -12,6 +19,16 @@ def test_worker_tasks_do_not_return_placeholder_provider_statuses() -> None:
     assert "pending_provider_integration" not in worker_file
     assert "generate_text_json" in worker_file
     assert "OutfitCard" in worker_file
+
+
+def test_worker_reuses_one_event_loop_for_sequential_async_tasks() -> None:
+    async def running_loop_id() -> int:
+        return id(asyncio.get_running_loop())
+
+    first = run_worker_coroutine(running_loop_id())
+    second = run_worker_coroutine(running_loop_id())
+
+    assert first == second
 
 
 def test_ai_worker_tasks_fail_closed_without_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -37,6 +37,12 @@
 
 ### Fixed
 
+- Celery workers now reuse one event loop per prefork process, preventing asyncpg pools from being reused from a
+  different loop during sequential image, avatar and try-on jobs.
+- New avatar profiles return an empty `200` response instead of a noisy expected `404`; narrow wardrobe cards now
+  constrain metadata so confidence badges cannot create horizontal page overflow.
+- Subscription price states are localized and the privacy card no longer claims that every hybrid request used
+  OpenRouter.
 - Direct Mini App uploads now flush the image row before reading its UUID, so the upload keeps a valid private-original
   reference for retry and avatar workflows; migration `0005` repairs only exact one-to-one legacy orphan pairs.
 - Commercial-integrity migration now repairs legacy duplicate analysis reservations by preserving every audit row and

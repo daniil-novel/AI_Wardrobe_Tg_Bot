@@ -82,12 +82,14 @@ async def _require_avatar_access(session: AsyncSession, user_id: UUID) -> None:
         )
 
 
-@router.get("/profile", response_model=AvatarProfileRead)
+@router.get("/profile", response_model=AvatarProfileRead | None)
 async def get_avatar_profile(
     user_id: UUID = CurrentUser,
     session: AsyncSession = DbSession,
-) -> AvatarProfileRead:
-    return await _profile_read(session, await _load_profile(session, user_id))
+) -> AvatarProfileRead | None:
+    result = await session.execute(select(AvatarProfile).where(AvatarProfile.user_id == user_id))
+    profile = result.scalar_one_or_none()
+    return await _profile_read(session, profile) if profile is not None else None
 
 
 @router.put("/profile", response_model=AvatarProfileRead)

@@ -1046,7 +1046,7 @@ function AddScreen({
       ) : (
         <SmartCard icon="camera" title="Фото ожидается" text="Выберите режим и загрузите изображение" />
       )}
-      <SmartCard icon="archive" title="Приватность" text="OpenRouter · оригинал сохранён · без обучения" />
+      <SmartCard icon="archive" title="Приватность" text="AI-анализ · оригинал сохранён · без обучения" />
     </section>
   );
 }
@@ -1332,6 +1332,11 @@ const featureLabels: Record<string, string> = {
   capsules: "Капсулы",
   trip_packing: "Сборы в поездку",
   stylist_mode: "Режим стилиста",
+};
+
+const pricingStatusLabels: Record<string, string> = {
+  proposed: "Предварительная цена",
+  validated: "Цена подтверждена",
 };
 
 const previewBillingPlans: BillingPlan[] = [
@@ -1653,7 +1658,11 @@ function StudioScreen({
           <div className="plan-grid">
             {plans.map((plan) => (
               <article className={`plan-card${plan.code === "premium" ? " featured" : ""}`} key={plan.code}>
-                <span className="eyebrow">{plan.code === "premium" ? "Рекомендуем" : plan.pricing_status}</span>
+                <span className="eyebrow">
+                  {plan.code === "premium"
+                    ? "Рекомендуем"
+                    : (pricingStatusLabels[plan.pricing_status] ?? plan.pricing_status)}
+                </span>
                 <h3>{plan.title}</h3>
                 <strong>
                   {plan.monthly_price === 0 ? "Бесплатно" : `${plan.monthly_price.toLocaleString("ru-RU")} ₽/мес`}

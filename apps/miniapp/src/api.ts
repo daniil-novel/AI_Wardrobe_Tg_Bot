@@ -588,10 +588,7 @@ export async function redeemPromoCode(code: string): Promise<{ plan: string; exp
 
 export async function getAvatarProfile(): Promise<AvatarProfile | null> {
   const response = await authenticatedFetch(`${apiBaseUrl}/avatar/profile`);
-  if (response.status === 404) {
-    return null;
-  }
-  return readJson<AvatarProfile>(response);
+  return readJson<AvatarProfile | null>(response);
 }
 
 export async function saveAvatarProfile(payload: {

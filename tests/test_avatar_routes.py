@@ -74,6 +74,16 @@ async def test_profile_helpers_return_measurements_and_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_profile_returns_null_without_console_noise_for_new_user() -> None:
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result_with(None))
+
+    response = await avatar.get_avatar_profile(user_id=uuid4(), session=session)
+
+    assert response is None
+
+
+@pytest.mark.asyncio
 async def test_update_requires_explicit_consent() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await avatar.update_avatar_profile(

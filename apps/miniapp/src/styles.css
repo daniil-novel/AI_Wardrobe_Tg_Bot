@@ -681,6 +681,11 @@ button:disabled {
   gap: 8px;
 }
 
+.garment-meta > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .garment-meta h3 {
   display: -webkit-box;
   margin: 0;
@@ -721,6 +726,10 @@ button:disabled {
   padding: 0 8px;
   font-size: 10px;
   font-weight: 800;
+}
+
+.garment-meta .badge {
+  flex: 0 0 auto;
 }
 
 .badge.success {
