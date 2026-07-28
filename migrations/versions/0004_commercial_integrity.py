@@ -57,6 +57,28 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        WITH ranked_analysis_requests AS (
+            SELECT
+                id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY task_id, request_type
+                    ORDER BY created_at ASC, id ASC
+                ) AS duplicate_rank
+            FROM ai_requests
+            WHERE task_id IS NOT NULL
+              AND request_type = 'analyze_image'
+        )
+        UPDATE ai_requests
+        SET task_id = NULL
+        WHERE id IN (
+            SELECT id
+            FROM ranked_analysis_requests
+            WHERE duplicate_rank > 1
+        )
+        """
+    )
+    op.execute(
+        """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_analysis_task
         ON ai_requests (task_id, request_type)
         WHERE task_id IS NOT NULL AND request_type = 'analyze_image'

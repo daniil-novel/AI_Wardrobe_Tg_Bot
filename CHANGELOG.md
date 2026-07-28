@@ -37,6 +37,8 @@
 
 ### Fixed
 
+- Commercial-integrity migration now repairs legacy duplicate analysis reservations by preserving every audit row and
+  clearing only duplicate task links before creating the partial unique index.
 - Runner shutdown now terminates the complete Python/Codex process tree; the first relay canary exposed an orphaned
   child process when `uv run` was used as the persisted PID.
 - Direct uploads can no longer bypass the displayed monthly AI quota.

@@ -52,3 +52,13 @@ def test_codex_runner_stays_on_the_trusted_host_instead_of_the_server_image() ->
     assert "CODEX_RUNNER_TOKEN" in compose
     assert "/internal/codex-runner/claim" in runner
     assert "CodexCliRunner" in runner
+
+
+def test_commercial_integrity_migration_repairs_legacy_analysis_duplicates_first() -> None:
+    migration = Path("migrations/versions/0004_commercial_integrity.py").read_text(encoding="utf-8")
+
+    cleanup_position = migration.index("WITH ranked_analysis_requests")
+    index_position = migration.index("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_analysis_task")
+    assert cleanup_position < index_position
+    assert "ROW_NUMBER() OVER" in migration
+    assert "SET task_id = NULL" in migration
