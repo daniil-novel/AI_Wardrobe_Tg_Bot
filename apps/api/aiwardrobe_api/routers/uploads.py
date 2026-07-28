@@ -142,6 +142,8 @@ async def upload_file(
         storage_key=storage_key,
         provenance_label=ProvenanceLabel.USER_PROCESSED.value,
     )
+    session.add(image)
+    await session.flush()
     upload = Upload(
         user_id=user_id,
         source=UploadSource.MINIAPP.value,
@@ -149,7 +151,7 @@ async def upload_file(
         status=ProcessingStatus.UPLOADED.value,
         original_image_id=image.id,
     )
-    session.add_all([image, upload])
+    session.add(upload)
     await session.flush()
     if selection_json:
         try:

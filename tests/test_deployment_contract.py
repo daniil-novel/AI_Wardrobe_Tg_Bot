@@ -62,3 +62,14 @@ def test_commercial_integrity_migration_repairs_legacy_analysis_duplicates_first
     assert cleanup_position < index_position
     assert "ROW_NUMBER() OVER" in migration
     assert "SET task_id = NULL" in migration
+
+
+def test_miniapp_image_repair_only_links_exact_unambiguous_orphans() -> None:
+    migration = Path("migrations/versions/0005_upload_image_links.py").read_text(encoding="utf-8")
+
+    assert 'revision = "0005_upload_image_links"' in migration
+    assert len("0005_upload_image_links") <= 32
+    assert "image.created_at = upload.created_at" in migration
+    assert "upload.source = 'miniapp'" in migration
+    assert migration.count("HAVING COUNT(*) = 1") == 2
+    assert "SET original_image_id = candidate.image_id" in migration
