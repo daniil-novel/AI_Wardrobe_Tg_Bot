@@ -10,6 +10,7 @@
   saved-auth or opt-in Ollama/LM Studio, subprocess timeout/output limits and `/health/ai` diagnostics.
 - Windows runner start/stop and real relay-canary scripts; server Docker images remain free of Codex credentials,
   binaries and Node.
+- Idempotent Windows logon-task installer keeps the trusted local runner available after a workstation restart.
 - Actual provider/model provenance for AI reservations, completions and privacy receipts.
 - User-controlled recognition editor with proposed region, touch/mouse selection, keyboard move/resize, whole-photo mode, undo/redo/reset, client-side crop and persisted selection provenance.
 - Consent-safe avatar profiles, normalized measurements, asynchronous avatar generation and multi-item virtual try-on jobs.

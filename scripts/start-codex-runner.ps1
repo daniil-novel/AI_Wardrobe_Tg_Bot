@@ -33,6 +33,17 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Virtual environment Python was not found. Run 'uv sync --extra dev' first."
 }
 
+if (Test-Path -LiteralPath $pidPath) {
+    $existingPid = 0
+    if ([int]::TryParse([System.IO.File]::ReadAllText($pidPath).Trim(), [ref]$existingPid)) {
+        $existingProcess = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+        if ($null -ne $existingProcess) {
+            Write-Output "Codex runner is already running with PID $existingPid."
+            return
+        }
+    }
+}
+
 $process = Start-Process `
     -FilePath $pythonPath `
     -ArgumentList @("scripts/codex-runner.py") `

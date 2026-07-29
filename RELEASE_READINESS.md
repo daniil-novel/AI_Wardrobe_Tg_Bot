@@ -1,6 +1,6 @@
 # Release readiness
 
-Срез: 2026-07-28.
+Срез: 2026-07-29.
 
 | Требование | Статус | Доказательство / blocker |
 |---|---|---|
@@ -13,32 +13,32 @@
 | Editor: контролируемая область/crop | VERIFIED | pointer + keyboard rectangle, undo/redo/reset/full, server provenance |
 | Editor: semantic auto-detection/mask/zoom | PARTIAL | central proposal есть; segmentation/brush/zoom в P1 |
 | Avatar profile/consent/revoke | VERIFIED | API/models/UI/tests; derived S3 deletion |
-| Real avatar/try-on quality | BLOCKED | adapter есть, но consented live test/provider validation не выполнены |
+| Real avatar/try-on pipeline | VERIFIED synthetic | real provider generated avatar and try-on from a fictional adult fixture; no one-to-one biometric fidelity claim |
 | Premium entitlement | VERIFIED | server resolver + feature gate |
 | Monthly cost quotas | VERIFIED locally | idempotent reservations and tests; quota race под real PostgreSQL concurrency не проверен |
 | Promo module | VERIFIED PostgreSQL | HMAC/expiry/max/idempotency tests + authenticated HTTP redemption smoke |
-| Однодневный promo записан в БД | VERIFIED | QA PostgreSQL readback: Premium, 24h, max 1, unused; plaintext only in handoff |
+| Однодневный promo записан в БД | VERIFIED production | Premium, 24h, max 1; E2E code redeemed, a separate unused handoff code is created at delivery |
 | Payments | BLOCKED | `ENABLE_BILLING_PAYMENTS=false`; нет webhook/invoices/refunds |
 | Builds with/without paywall | VERIFIED | `build:subscriptions`, `build:open`, разные JS hashes |
-| Production deployment нового scope | BLOCKED | HTTP healthy; SSH banner timeout в двух попытках, backup/rollback и separate targets не подтверждены |
-| Structured logging/redaction | VERIFIED | JSON request logs and redaction tests |
+| Production deployment нового scope | VERIFIED | fresh backups, exact archive hashes, `0005`, atomic static activation, healthy API/worker/runner |
+| Structured logging/redaction | VERIFIED production | JSON request logs and redaction tests; rotating files plus Docker stdout |
 | Metrics | PARTIAL | API counter/histogram/uptime; нет queue/provider/DB exporter/traces |
-| Full test suite | VERIFIED | 115 passed, 67.91% coverage (gate 67%) |
-| PostgreSQL migration up/down | VERIFIED locally | fresh up/down/up и committed-v0.3.1 → current upgrade прошли; live `0001` debt остаётся |
+| Full test suite | VERIFIED | 138 passed, 70.11% coverage (gate 67%) |
+| PostgreSQL migration up/down | VERIFIED local + production clone | fresh up/down/up, exact production dump repair and live upgrade to `0005` |
 | DB normalization | PARTIAL | new domain normalized and constrained; legacy plan/UsageLimit cleanup remains |
 | Go decision | REJECTED | нет measured CPU bottleneck |
-| Claude Code review | VERIFIED | Opus alias, read-only, exit 0; separate Cloud Code Design unavailable |
+| Claude Code review | VERIFIED | Opus alias, read-only, exit 0; initial and post-deploy reviews saved |
 | README/CHANGELOG/MEMORY | VERIFIED | обновлены текущим loop |
 
 ## Ship decision
 
 - Local/product demo: **yes**.
-- Closed preview without payments and without fidelity claim: **conditional yes**.
+- Closed production preview without payments and without biometric-fidelity claim: **yes**.
 - Public production with paid subscriptions: **no**.
 
-## Human gates
+## Remaining commercial gates
 
-1. Восстановить SSH banner/доступ, подтвердить свежий off-host backup, rollback policy и отдельный URL для open variant.
-2. Выбрать payment and try-on providers.
-3. Подтвердить privacy/legal terms for face/body data.
-4. Снять schema-only dump production и повторить upgrade на sanitized clone.
+1. Выбрать payment provider и реализовать signed webhook/invoices/refunds.
+2. Подтвердить privacy/legal terms and retention for face/body data.
+3. Провести consented avatar fidelity study and define an honest product claim.
+4. Добавить off-host automated backups, queue/provider dashboards, alerts and a production soak/load test.

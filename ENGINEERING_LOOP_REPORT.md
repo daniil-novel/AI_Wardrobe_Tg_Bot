@@ -1,6 +1,6 @@
 # Engineering loop report
 
-Дата: 2026-07-28. Метод: bounded evidence-first loop, максимум три итерации на epic.
+Дата: 2026-07-29. Метод: bounded evidence-first loop, максимум три итерации на epic.
 
 ## Epic 1 — user-controlled recognition
 
@@ -139,7 +139,7 @@ Responsive CSS fixes and lightweight route metrics improve operability without a
 - every tab opened at 390×844;
 - no critical horizontal overflow after fixes;
 - TestClient p95 6.8–7.9 ms on public routes;
-- 115 tests passed with 67.91% coverage in the final control run.
+- 138 tests passed with 70.11% coverage in the final control run.
 
 ### CRITIQUE
 
@@ -152,7 +152,11 @@ In-process benchmark is not load evidence. No network/DB/queue/provider profile 
 ## External review and delegation
 
 - Три requested subagent направления были запущены, но завершились provider `403` после потери сети; их выводы не использованы как доказательство.
-- Claude Code Opus read-only review после reset завершился успешно. Подтверждённые замечания применены; raw review сохранён в `docs/reviews/CLAUDE_DESIGN_REVIEW.md`.
+- Claude Code Opus read-only review после reset завершился успешно. Подтверждённые замечания применены; исходный
+  локальный review сохранён в `docs/reviews/CLAUDE_DESIGN_REVIEW.md`.
+- Повторный Opus post-deploy review прошёл по 21 production screenshot и JSON trace. P1 с отсутствующими
+  иллюстрациями сохранённых образов исправлен и повторно проверен; отчёт:
+  `docs/reviews/CLAUDE_POSTDEPLOY_REVIEW_2026-07-29.md`.
 
 ## Retained decisions
 
@@ -163,13 +167,51 @@ In-process benchmark is not load evidence. No network/DB/queue/provider profile 
 5. Python сохраняется; оптимизируются измеренные I/O paths.
 6. Deployment без target/health/rollback не объявляется выполненным.
 
-## Late infrastructure verification
+## Epic 5 — local Codex runner and production hardening
 
-- PostgreSQL 16 fresh DB: `upgrade → downgrade base → upgrade head` прошёл, финальный revision
-  `0004_commercial_integrity`.
-- Upgrade realism: committed v0.3.1/HEAD создал 27-table baseline; current `0002–0004` обновили его до 34 tables и
-  корректного head.
-- QA API с PostgreSQL + Redis: `/health/ready` вернул HTTP 200.
-- Promo HTTP smoke: `premium`, one active DB redemption, expiry present; smoke data удалены.
-- Production HTTP root/health/ready вернули 200, но SSH дважды остановился на banner timeout, поэтому backup и
-  rollback нельзя было подтвердить и deployment не выполнялся.
+### OBSERVE
+
+Встраивание Codex CLI в VPS переносило бы пользовательскую авторизацию и приватные изображения на сервер. При этом
+пользователь просил сохранить OpenRouter API и добавить постоянно работающий локальный CLI как второй real-AI path.
+
+### HYPOTHESIZE
+
+Исходящий HTTPS long-poll с heartbeat и bounded-TTL Redis jobs позволит рабочей станции выполнять recognition/text
+без входящего порта, а `hybrid/runner_first` сможет немедленно переходить на OpenRouter при выключенном компьютере.
+
+### PLAN / ACT
+
+- hidden bearer-authenticated claim/complete/fail/heartbeat endpoints;
+- ограничение размера, TTL, timeout, constant-time token check;
+- Windows start/stop, реальный process-tree shutdown и relay canary;
+- provider-neutral gateway с неизменённым API mode;
+- production backup, migration on exact dump clone, atomic static activation and rollback copies;
+- три browser runs, bug report и targeted post-fix checks.
+
+### VERIFY
+
+- production health: `hybrid:runner_first`, runner connected, OpenRouter configured;
+- runner production canary and real image recognition completed locally;
+- offline runner probe fell back to OpenRouter;
+- final full E2E: upload `Готово`, 18 items, avatar/try-on `completed`, 0 console errors, 0 failed requests,
+  0 layout issues;
+- targeted post-fix try-on: one delivery, 11.0 s, no `job not found` retry;
+- Favorites recheck: 7 cards/7 collages/7 images, width 390/390, no failures.
+
+### CRITIQUE
+
+Per-request CLI startup is a privacy/dev choice, not a high-throughput serving architecture. Runner-only capacity,
+provider cost ingestion and long-duration soak/load evidence remain absent. Pixel generation intentionally remains API.
+
+### DECIDE
+
+`ACCEPTED` for controlled hybrid production testing. Runner-only public SLO: `PARTIAL`.
+
+## Final infrastructure verification
+
+- Fresh compressed PostgreSQL, source and static backups exist under `/opt/ai-wardrobe/backups/releases`.
+- Exact production dump clones validated both migration repairs; production is at `0005_upload_image_links`.
+- Production API and worker are healthy; rotating `api.log`/`worker.log` and Docker stdout are active.
+- Local Codex runner remains connected from the trusted Windows workstation; the VPS contains no Codex auth/binary.
+- Subscription build is live over TLS. Payments remain deliberately disabled; entitlement/promo/quota enforcement is live.
+- Detailed incidents and fixes are recorded in `BUG_REPORT_2026-07-29.md`.

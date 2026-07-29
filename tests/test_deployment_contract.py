@@ -73,3 +73,12 @@ def test_miniapp_image_repair_only_links_exact_unambiguous_orphans() -> None:
     assert "upload.source = 'miniapp'" in migration
     assert migration.count("HAVING COUNT(*) = 1") == 2
     assert "SET original_image_id = candidate.image_id" in migration
+
+
+def test_windows_runner_has_idempotent_logon_task() -> None:
+    start_script = Path("scripts/start-codex-runner.ps1").read_text(encoding="utf-8")
+    task_script = Path("scripts/install-codex-runner-task.ps1").read_text(encoding="utf-8")
+
+    assert "Codex runner is already running" in start_script
+    assert "Register-ScheduledTask" in task_script
+    assert "MultipleInstances IgnoreNew" in task_script

@@ -1,20 +1,23 @@
 # Deployment
 
-## Status of the 2026-07-28 working tree
+## Deployment status (2026-07-29)
 
-The existing v0.3.1 production endpoint remained reachable during this audit:
+The subscription build, selection editor, hybrid local runner, promo/entitlement flow, avatar and virtual try-on are
+deployed. Production is at Alembic `0005_upload_image_links`; API, worker, bot, static app and local runner heartbeat
+are healthy.
 
-- `/` returned HTTP 200;
-- `/api/health` returned HTTP 200;
-- `/api/health/ready` returned HTTP 200.
+The final authenticated 390×844 production pass completed upload, all six tabs, promo, avatar and try-on with zero
+console errors, failed requests or layout issues. A separate targeted try-on confirmed that the transaction/broker
+race no longer retries. Payments remain intentionally disabled.
 
-The editor/avatar/subscription working tree described in the current audit **has not been deployed**. Local PostgreSQL
-fresh `up/down/up`, committed-v0.3.1 → current upgrade, Redis readiness and promo HTTP E2E passed. Deployment remains
-blocked because the production host timed out twice during SSH banner exchange, so a fresh backup, live schema and
-rollback could not be verified; no separate URL was provided for the open variant, and payments remain incomplete.
-Do not treat the local `dist/subscription` and `dist/open` folders as production URLs.
+Fresh release backups:
 
-## Current Production (2026-07-05)
+- `/opt/ai-wardrobe/backups/releases/ai_wardrobe_pre_local_runner_20260729_014936.sql.gz`;
+- `/opt/ai-wardrobe/backups/releases/source_pre_local_runner_20260729_014918.tgz`;
+- `/opt/ai-wardrobe/backups/releases/static_pre_local_runner_20260729_014918.tgz`;
+- `/opt/ai-wardrobe/backups/releases/ai_wardrobe_pre_upload_link_fix_20260729_022204.sql.gz`.
+
+## Current production
 
 - Host: `v353999.hosted-by-vdsina.com` (91.84.104.36), Ubuntu 22.04, 1 vCPU / 2 GB RAM / 2 GB swap.
 - App root: `/opt/ai-wardrobe` (compose stack, `.env` with real secrets, `backups/`).
@@ -23,8 +26,9 @@ Do not treat the local `dist/subscription` and `dist/open` folders as production
 - Routing: `/` → Mini App static, `/api/` → API on 127.0.0.1:8010, `/api/telegram/webhook` → bot webhook server on 127.0.0.1:8011. PostgreSQL/Redis/RabbitMQ/MinIO have no host ports.
 - Telegram: bot `@wwardrobeai_bot`, webhook `https://v353999.hosted-by-vdsina.com/api/telegram/webhook` with secret token, chat menu button opens the Mini App URL.
 - Sizing: `API_WORKERS=1`, `WORKER_CONCURRENCY=1` (single vCPU); RabbitMQ is the Celery broker, worker consumes `-Q celery,ai,research,recommendations,notifications`.
-- Backups: manual dump exists at `/opt/ai-wardrobe/backups/ai_wardrobe_initial.sql.gz`; schedule
+- Backups: the release backups above and the initial dump exist on-host. Schedule
   `docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres pg_dump -U ai_wardrobe ai_wardrobe | gzip > /opt/ai-wardrobe/backups/ai_wardrobe_$(date +%Y%m%d).sql.gz`
+  daily via cron and copy dumps off the host.
 
 The API and worker run as UID/GID `10001`. Prepare the bind-mounted log directory before the first start or after
 restoring the app root:
@@ -34,7 +38,6 @@ sudo install -d -m 0750 -o 10001 -g 10001 /opt/ai-wardrobe/logs
 ```
 
 Verify that `api.log` and `worker.log` appear after startup; Docker stdout remains the secondary log stream.
-  daily via cron and copy dumps off the host.
 
 Redeploy from a workstation:
 

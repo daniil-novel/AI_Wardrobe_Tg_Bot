@@ -38,29 +38,32 @@ AI Wardrobe — Telegram-first private wardrobe assistant: upload/crop garments,
 - Codex CLI subprocess receives prompts through stdin, runs in an ephemeral read-only directory and does not inherit
   OpenRouter, Telegram or JWT secrets.
 
-## Current local evidence
+## Current evidence
 
-- 129 tests passed after the relay implementation; coverage 69.19%;
+- 138 tests passed after production hardening; coverage 70.11%;
 - Ruff/Mypy/typecheck pass;
-- subscription bundle 213.61 kB JS / 66.66 kB gzip;
+- final subscription bundle 214.31 kB JS / 66.85 kB gzip;
 - open bundle 209.63 kB JS / 65.67 kB gzip;
 - TestClient public routes ≈190 RPS, p95 <8 ms;
-- all six tabs visually inspected at 390×844;
-- Claude Code Opus read-only review completed.
+- all six tabs, editor, promo, avatar and try-on visually inspected at 390×844 in production;
+- final full E2E: upload ready, 18 items, avatar/try-on completed, zero console/network/layout issues;
+- Claude Code Opus initial and post-deploy read-only reviews completed.
 - PostgreSQL fresh up/down/up and committed-v0.3.1 → current migration upgrade passed;
 - QA API with PostgreSQL + Redis returned readiness 200;
-- one unused 24-hour Premium promo is stored in the isolated QA DB; plaintext exists only in the handoff.
+- one-day production promo flow was redeemed by the synthetic E2E user; a separate unused code is generated only at
+  final handoff.
 - Codex CLI 0.144.1 real smoke passed for JSON, strict output schema, UTF-8 Russian text and `--image` input.
 - three local end-to-end Codex JSON probes: median 6.165 s, min 6.051 s, max 7.656 s; no queue/image load.
 - Real Redis + FastAPI + HTTPS-contract relay canary returned the requested JSON through Codex CLI in 28.2 s on the
   first run and 5.2 s on the repeated run. The repeated lifecycle check found zero leftover processes/listeners.
+- Production runner image recognition completed in about 57 s during the final run; full upload analysis including six
+  API-generated product images completed in 104.3 s. A targeted try-on completed in 11.0 s without retry.
+- Production is at migration `0005`; API/worker health, rotating files, stdout logs and hybrid runner heartbeat are live.
 
 ## Known blockers
 
 - migration 0001 uses live metadata;
 - no payment provider/webhook;
-- existing v0.3.1 production is healthy over HTTPS and SSH access has recovered; the new release backup/deploy/rollback
-  and post-deploy browser E2E are the current gate;
 - no live consented avatar fidelity validation;
 - no semantic segmentation/brush/zoom;
 - no actual provider cost ingestion or end-to-end traces.
@@ -81,8 +84,7 @@ uv run --extra dev python scripts/benchmark-api.py
 ./scripts/codex-runner-canary.ps1
 ```
 
-## Next production gate
+## Next commercial gate
 
-Create a fresh production dump/source/static backup, deploy the subscription variant with hybrid runner-first fallback,
-start the local runner against production, verify fallback and every Mini App tab in a real browser, then retain the
-open variant as a separately versioned build artifact. Never commit promo plaintext or runner tokens.
+Add payment webhooks/refunds, consented avatar-fidelity evidence, automated off-host backups and provider/queue SLO
+dashboards. Keep promo plaintext, runner tokens and Telegram initData outside Git.

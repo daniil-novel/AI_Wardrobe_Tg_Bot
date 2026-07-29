@@ -136,6 +136,14 @@ terminates its Codex children. Validate a local relay before a deployment with
 `./scripts/codex-runner-canary.ps1`; it creates an ephemeral token, runs a real `codex exec`, and verifies that no
 runner/API process is left behind.
 
+For the trusted Windows test workstation, install the idempotent per-user logon task:
+
+```powershell
+./scripts/install-codex-runner-task.ps1
+```
+
+The task launches the same ignored environment/configuration after logon and uses `MultipleInstances=IgnoreNew`.
+
 ## Frontend development and variants
 
 ```powershell
@@ -244,14 +252,20 @@ docs           Architecture, API, deploy and independent review notes
 - [Security/privacy review](SECURITY_PRIVACY_REVIEW.md)
 - [Engineering loop](ENGINEERING_LOOP_REPORT.md)
 - [Release readiness](RELEASE_READINESS.md)
+- [Production bug report](BUG_REPORT_2026-07-29.md)
 - [Claude Code review](docs/reviews/CLAUDE_DESIGN_REVIEW.md)
+- [Claude Code post-deploy review](docs/reviews/CLAUDE_POSTDEPLOY_REVIEW_2026-07-29.md)
 
 ## Production status
 
-`ENABLE_BILLING_PAYMENTS=false` is intentional. Public paid production remains blocked until:
+The 2026-07-29 subscription build is deployed at
+`https://v353999.hosted-by-vdsina.com`, with `hybrid + runner_first`, live OpenRouter fallback and a connected local
+Codex runner. Production is at migration `0005`; the final authenticated browser trace is clean and documented in the
+bug report.
 
-- the verified local migration is repeated against a sanitized production schema/data clone and rollback is rehearsed;
+`ENABLE_BILLING_PAYMENTS=false` remains intentional. Public paid launch remains blocked until:
+
 - payment invoices/webhooks/refunds are signed and idempotent;
 - actual provider tokens/credits/cost are persisted;
-- real-stack E2E, load, privacy and rollback checks pass;
-- SSH access, a fresh off-host backup, a separate open-variant URL and the secrets manager are confirmed.
+- consented avatar-fidelity, load/soak and legal/privacy checks pass;
+- automated off-host backup/restore, provider/queue dashboards and alerting are in place.

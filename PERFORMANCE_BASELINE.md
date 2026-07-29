@@ -26,10 +26,11 @@ Harness использует FastAPI `TestClient`, один процесс, 500 
 | Сборка | JS raw / gzip | CSS raw / gzip |
 |---|---:|---:|
 | До editor/avatar/subscription UI | 189.98 / 60.29 kB | 14.67 / 3.62 kB |
-| Subscription | 213.61 / 66.66 kB | 21.32 / 4.71 kB |
-| Open | 209.63 / 65.67 kB | 21.32 / 4.71 kB |
+| Subscription (final) | 214.31 / 66.85 kB | 21.76 / 4.78 kB |
+| Open (final) | 210.33 / 65.90 kB | 21.76 / 4.78 kB |
 
-Цена новых функций: subscription JS вырос на `23.63 kB` raw и `6.37 kB` gzip; CSS — на `6.65 kB` raw и `1.09 kB` gzip. Open variant реально отличается и на `3.98 kB` raw JS меньше subscription variant.
+Цена новых функций: финальный subscription JS вырос на `24.33 kB` raw и `6.56 kB` gzip; CSS — на `7.09 kB`
+raw и `1.16 kB` gzip. Open variant реально отличается и на `3.98 kB` raw JS меньше subscription variant.
 
 ## Latency budget
 
@@ -80,6 +81,19 @@ Rollout policy:
 - collect `ai_requests.provider/model/latency_ms`, queue lag, success/fallback rate and cost before changing the default.
 
 Codex is deliberately absent from all server Docker targets, avoiding credential duplication and image-size overhead.
+
+## Production observations
+
+These are single-run observations, not an SLO:
+
+- final image recognition through the local runner: about 57 s;
+- complete upload analysis with six API-generated product images: 104.3 s;
+- avatar generation: 8.1 s;
+- virtual try-on before the queue-order fix: 17.3 s;
+- targeted virtual try-on after the fix: 11.0 s with one delivery and no retry.
+
+The hybrid path optimizes control/privacy and testing flexibility, not raw latency. Product-image fan-out dominates the
+full upload wall time; measure provider concurrency/cost before raising worker concurrency.
 
 ## Решение по Go
 
